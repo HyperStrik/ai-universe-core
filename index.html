@@ -1,0 +1,749 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Universe Core</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: '#0b0f17',
+            panel: '#111827',
+            edge: '#1f2937',
+            accent: '#10b981',
+            accent2: '#3b82f6',
+            danger: '#ef4444',
+            warn: '#f59e0b',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    html, body { height: 100%; }
+    .screen { display: none; }
+    .screen.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+    .chat-scroll { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
+    .chat-scroll::-webkit-scrollbar { width: 8px; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 8px; }
+    .console-scroll { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .god-scrape-glow { box-shadow: 0 0 24px rgba(59, 130, 246, 0.25), inset 0 0 0 1px rgba(96, 165, 250, 0.35); }
+  </style>
+</head>
+<body class="h-full bg-surface text-slate-100 antialiased">
+  <div id="app" class="h-full flex flex-col lg:flex-row">
+    <aside class="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-edge bg-panel">
+      <div class="p-5 border-b border-edge">
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-accent to-accent2 flex items-center justify-center font-bold text-black">AI</div>
+          <div>
+            <h1 class="text-lg font-semibold tracking-tight">AI Universe Core</h1>
+            <p class="text-xs text-slate-400">Enterprise SaaS Console</p>
+          </div>
+        </div>
+      </div>
+
+      <nav class="p-4 space-y-2">
+        <button data-nav="chat" class="nav-btn w-full text-left px-4 py-3 rounded-xl bg-accent/15 border border-accent/30 text-accent font-medium">Client AI Chat</button>
+        <button data-nav="pricing" class="nav-btn w-full text-left px-4 py-3 rounded-xl hover:bg-slate-800 border border-transparent">Pricing Plans</button>
+        <button data-nav="godmode" class="nav-btn w-full text-left px-4 py-3 rounded-xl hover:bg-slate-800 border border-transparent">God Mode Admin</button>
+      </nav>
+
+      <div class="p-4 border-t border-edge space-y-3">
+        <label class="block text-xs text-slate-400 uppercase tracking-wide">API Base URL</label>
+        <input id="apiBase" type="url" placeholder="http://localhost:5000" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        <label class="block text-xs text-slate-400 uppercase tracking-wide">Client Email</label>
+        <input id="userEmail" type="email" placeholder="user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        <label class="block text-xs text-slate-400 uppercase tracking-wide">Device Fingerprint</label>
+        <input id="deviceFingerprint" type="text" placeholder="stable-device-id" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        <button id="saveIdentityBtn" class="w-full rounded-lg bg-slate-800 hover:bg-slate-700 border border-edge py-2 text-sm">Save Client Identity</button>
+      </div>
+    </aside>
+
+    <main class="flex-1 flex flex-col min-h-0 bg-surface">
+      <header class="px-6 py-4 border-b border-edge flex items-center justify-between">
+        <div>
+          <h2 id="screenTitle" class="text-xl font-semibold">Client AI Chat System</h2>
+          <p id="screenSubtitle" class="text-sm text-slate-400">Live model execution and quota-aware responses</p>
+        </div>
+        <div id="statusPill" class="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">System Online</div>
+      </header>
+
+      <section id="screen-chat" class="screen active flex-1 min-h-0">
+        <div id="trialPaywallAlert" class="hidden px-6 pt-4">
+          <div class="rounded-2xl border border-amber-400/60 bg-gradient-to-r from-amber-500/25 via-yellow-400/15 to-amber-600/25 px-5 py-4 shadow-lg shadow-amber-900/30">
+            <p id="trialPaywallMessage" class="text-amber-100 font-semibold text-sm leading-relaxed">
+              ⚠️ Your premium trial ends soon. Upgrade now to save your chat logs and unlock permanent features!
+            </p>
+            <p id="trialPaywallTime" class="text-xs text-amber-200/90 mt-2"></p>
+            <button
+              id="trialUpgradeBtn"
+              type="button"
+              class="mt-3 rounded-lg bg-amber-400 hover:bg-amber-300 text-black text-xs font-bold uppercase tracking-wide px-4 py-2"
+            >
+              Upgrade Now
+            </button>
+          </div>
+        </div>
+
+        <div class="px-6 py-3 border-b border-edge flex flex-wrap items-center gap-3 justify-between">
+          <div class="flex items-center gap-2 text-sm text-slate-300">
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 border border-edge">Credits: <strong id="creditHint">2 base / day</strong></span>
+            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 border border-edge">Shares today: <strong id="shareCountHint">0</strong></span>
+          </div>
+          <button id="whatsappShareBtn" class="rounded-xl bg-green-600 hover:bg-green-500 text-white px-4 py-2 text-sm font-medium shadow-lg shadow-green-900/30">
+            Share to WhatsApp to Unlock 1 Bonus Credit
+          </button>
+        </div>
+
+        <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-6 py-4 space-y-4"></div>
+
+        <div class="border-t border-edge p-4 bg-panel">
+          <div class="flex flex-col gap-3">
+            <textarea id="chatInput" rows="3" placeholder="Enter your prompt..." class="w-full resize-none rounded-xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent"></textarea>
+            <div class="flex items-center justify-between gap-3">
+              <p class="text-xs text-slate-400">Responses may be truncated to 1000 words for client tiers.</p>
+              <button id="sendChatBtn" class="rounded-xl bg-accent hover:bg-emerald-400 text-black font-semibold px-5 py-2.5">Execute Prompt</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-pricing" class="screen flex-1 min-h-0 overflow-y-auto">
+        <div class="px-6 py-6 space-y-6">
+          <div id="pricingAlert" class="hidden rounded-2xl border border-warn/40 bg-warn/10 px-5 py-4">
+            <p class="text-warn font-semibold text-sm uppercase tracking-wide">Access Restriction Active</p>
+            <p id="pricingAlertText" class="mt-2 text-slate-200 text-sm"></p>
+          </div>
+
+          <div class="text-center max-w-3xl mx-auto">
+            <h3 class="text-3xl font-bold">Enterprise Pricing Plans</h3>
+            <p class="text-slate-400 mt-2">Upgrade to continue after your 7-day authorization trial or when daily credits are exhausted.</p>
+          </div>
+
+          <div class="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto pb-8">
+            <article class="rounded-2xl border border-edge bg-panel p-6 flex flex-col">
+              <p class="text-xs uppercase tracking-widest text-slate-400">Starter</p>
+              <h4 class="text-2xl font-bold mt-2">$29<span class="text-base font-normal text-slate-400">/mo</span></h4>
+              <ul class="mt-4 space-y-2 text-sm text-slate-300 flex-1">
+                <li>25 daily AI credits</li>
+                <li>Email-verified access</li>
+                <li>Standard scope controls</li>
+              </ul>
+              <button class="pricing-buy mt-6 w-full rounded-xl border border-edge py-2.5 hover:bg-slate-800" data-plan="starter">Start Starter Plan</button>
+            </article>
+
+            <article class="rounded-2xl border-2 border-accent bg-panel p-6 flex flex-col shadow-xl shadow-emerald-900/20 relative">
+              <span class="absolute -top-3 left-1/2 -translate-x-1/2 text-xs bg-accent text-black font-bold px-3 py-1 rounded-full">Recommended</span>
+              <p class="text-xs uppercase tracking-widest text-slate-400">Growth</p>
+              <h4 class="text-2xl font-bold mt-2">$99<span class="text-base font-normal text-slate-400">/mo</span></h4>
+              <ul class="mt-4 space-y-2 text-sm text-slate-300 flex-1">
+                <li>Unlimited scoped AI credits</li>
+                <li>OVERRIDE_UNLIMITED role eligibility</li>
+                <li>Priority inference lane</li>
+              </ul>
+              <button class="pricing-buy mt-6 w-full rounded-xl bg-accent hover:bg-emerald-400 text-black font-semibold py-2.5" data-plan="growth">Upgrade to Growth</button>
+            </article>
+
+            <article class="rounded-2xl border border-edge bg-panel p-6 flex flex-col">
+              <p class="text-xs uppercase tracking-widest text-slate-400">Enterprise</p>
+              <h4 class="text-2xl font-bold mt-2">Custom</h4>
+              <ul class="mt-4 space-y-2 text-sm text-slate-300 flex-1">
+                <li>Dedicated compliance controls</li>
+                <li>Private model routing</li>
+                <li>24/7 solution architect support</li>
+              </ul>
+              <button class="pricing-buy mt-6 w-full rounded-xl border border-edge py-2.5 hover:bg-slate-800" data-plan="enterprise">Contact Sales</button>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-godmode" class="screen flex-1 min-h-0">
+        <div class="px-6 py-4 border-b border-edge grid lg:grid-cols-2 gap-4">
+          <div>
+            <label class="text-xs uppercase tracking-wide text-slate-400">Master Admin Key</label>
+            <input id="adminKey" type="password" placeholder="Enter x-master-admin-key" class="mt-1 w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent2" />
+          </div>
+          <div class="flex items-end">
+            <button id="unlockGodModeBtn" class="rounded-lg bg-accent2 hover:bg-blue-500 text-white px-4 py-2 text-sm font-medium">Unlock Admin Session</button>
+          </div>
+        </div>
+
+        <div id="godmodeLocked" class="px-6 py-8 text-center text-slate-400">Enter and save a valid master admin key to access operational controllers.</div>
+
+        <div id="godmodePanels" class="hidden flex-1 min-h-0 flex flex-col">
+          <div class="px-6 py-4 border-b border-edge bg-gradient-to-r from-accent2/10 via-purple-500/10 to-accent2/10">
+            <label class="text-xs uppercase tracking-widest text-accent2 font-semibold">
+              ⚡ Deep-Scrape God Engine Search (1000x Power Access)
+            </label>
+            <div class="mt-3 flex flex-col lg:flex-row gap-3">
+              <input
+                id="deepScrapeQuery"
+                type="text"
+                placeholder="Enter elite system architecture or code intelligence query..."
+                class="god-scrape-glow flex-1 rounded-xl bg-slate-950 border border-accent2/40 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent2"
+              />
+              <button
+                id="deepScrapeBtn"
+                class="rounded-xl bg-gradient-to-r from-accent2 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold px-6 py-3 shrink-0"
+              >
+                Execute Deep-Scrape
+              </button>
+            </div>
+            <p class="mt-2 text-xs text-slate-400">
+              Dispatches MASTER_OWNER deep-scrape with recursive web layers and uncensored Dolphin synthesis.
+            </p>
+          </div>
+
+          <div class="px-6 py-4 grid lg:grid-cols-2 gap-6">
+            <div class="rounded-2xl border border-edge bg-panel p-5 space-y-4">
+              <h3 class="font-semibold text-lg">Telegram Member Scraper Suite</h3>
+              <p class="text-sm text-slate-400">Dispatch scrape jobs against a Telegram target group identifier.</p>
+              <label class="text-xs uppercase tracking-wide text-slate-400">targetGroupId</label>
+              <input id="targetGroupId" type="text" placeholder="@enterprise_signals_group" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
+              <button id="scrapeTelegramBtn" class="w-full rounded-xl bg-accent2 hover:bg-blue-500 text-white py-2.5 font-medium">Execute Telegram Scrape</button>
+            </div>
+
+            <div class="rounded-2xl border border-edge bg-panel p-5 space-y-4">
+              <h3 class="font-semibold text-lg">B2B Outreach Engine Dispatcher</h3>
+              <p class="text-sm text-slate-400">Trigger enterprise outreach automation sequences instantly.</p>
+              <label class="text-xs uppercase tracking-wide text-slate-400">Campaign Name</label>
+              <input id="campaignName" type="text" value="q2_enterprise_wave" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
+              <label class="text-xs uppercase tracking-wide text-slate-400">Audience Segment</label>
+              <input id="audienceSegment" type="text" value="enterprise_leads_tier_a" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
+              <label class="inline-flex items-center gap-2 text-sm text-slate-300">
+                <input id="dryRun" type="checkbox" class="rounded border-edge" /> Dry Run Mode
+              </label>
+              <button id="triggerOutreachBtn" class="w-full rounded-xl bg-purple-600 hover:bg-purple-500 text-white py-2.5 font-medium">Trigger Outreach Pipeline</button>
+            </div>
+          </div>
+
+          <div class="flex-1 min-h-0 px-6 pb-6 flex flex-col">
+            <div class="rounded-2xl border border-edge bg-black/40 flex-1 min-h-0 flex flex-col">
+              <div class="px-4 py-2 border-b border-edge text-xs uppercase tracking-wide text-slate-400">Admin Console Stream</div>
+              <pre id="adminConsole" class="console-scroll flex-1 overflow-y-auto p-4 text-xs text-emerald-300 whitespace-pre-wrap"></pre>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+
+  <script>
+    const STORAGE_KEYS = {
+      apiBase: 'auc_api_base',
+      email: 'auc_user_email',
+      fingerprint: 'auc_device_fingerprint',
+      adminKey: 'auc_admin_key',
+    };
+
+    const SCREEN_META = {
+      chat: {
+        title: 'Client AI Chat System',
+        subtitle: 'Live model execution and quota-aware responses',
+      },
+      pricing: {
+        title: 'Pricing Plans',
+        subtitle: 'Commercial upgrade paths and trial lifecycle management',
+      },
+      godmode: {
+        title: 'Secret God Mode Admin Control Panel',
+        subtitle: 'Protected operational dispatch and telemetry console',
+      },
+    };
+
+    const state = {
+      activeScreen: 'chat',
+      adminUnlocked: false,
+      shareCountToday: 0,
+      pricingReason: '',
+    };
+
+    const el = {
+      apiBase: document.getElementById('apiBase'),
+      userEmail: document.getElementById('userEmail'),
+      deviceFingerprint: document.getElementById('deviceFingerprint'),
+      saveIdentityBtn: document.getElementById('saveIdentityBtn'),
+      screenTitle: document.getElementById('screenTitle'),
+      screenSubtitle: document.getElementById('screenSubtitle'),
+      statusPill: document.getElementById('statusPill'),
+      trialPaywallAlert: document.getElementById('trialPaywallAlert'),
+      trialPaywallTime: document.getElementById('trialPaywallTime'),
+      trialUpgradeBtn: document.getElementById('trialUpgradeBtn'),
+      chatTimeline: document.getElementById('chatTimeline'),
+      deepScrapeQuery: document.getElementById('deepScrapeQuery'),
+      deepScrapeBtn: document.getElementById('deepScrapeBtn'),
+      chatInput: document.getElementById('chatInput'),
+      sendChatBtn: document.getElementById('sendChatBtn'),
+      whatsappShareBtn: document.getElementById('whatsappShareBtn'),
+      shareCountHint: document.getElementById('shareCountHint'),
+      creditHint: document.getElementById('creditHint'),
+      pricingAlert: document.getElementById('pricingAlert'),
+      pricingAlertText: document.getElementById('pricingAlertText'),
+      adminKey: document.getElementById('adminKey'),
+      unlockGodModeBtn: document.getElementById('unlockGodModeBtn'),
+      godmodeLocked: document.getElementById('godmodeLocked'),
+      godmodePanels: document.getElementById('godmodePanels'),
+      targetGroupId: document.getElementById('targetGroupId'),
+      scrapeTelegramBtn: document.getElementById('scrapeTelegramBtn'),
+      campaignName: document.getElementById('campaignName'),
+      audienceSegment: document.getElementById('audienceSegment'),
+      dryRun: document.getElementById('dryRun'),
+      triggerOutreachBtn: document.getElementById('triggerOutreachBtn'),
+      adminConsole: document.getElementById('adminConsole'),
+      toastHost: document.getElementById('toastHost'),
+    };
+
+    function getApiBase() {
+      const raw = (el.apiBase.value || localStorage.getItem(STORAGE_KEYS.apiBase) || '').trim();
+      if (!raw) return window.location.origin;
+      return raw.replace(/\/$/, '');
+    }
+
+    function getClientHeaders() {
+      const email = (el.userEmail.value || localStorage.getItem(STORAGE_KEYS.email) || '').trim().toLowerCase();
+      const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
+      return {
+        'Content-Type': 'application/json',
+        'x-user-email': email,
+        'x-device-fingerprint': fingerprint,
+      };
+    }
+
+    function getAdminHeaders() {
+      const adminKey = (el.adminKey.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
+      return {
+        'Content-Type': 'application/json',
+        'x-master-admin-key': adminKey,
+      };
+    }
+
+    function showToast(message, type) {
+      const colors = {
+        success: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
+        error: 'border-red-500/40 bg-red-500/10 text-red-200',
+        info: 'border-blue-500/40 bg-blue-500/10 text-blue-200',
+        warn: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+      };
+      const node = document.createElement('div');
+      node.className = `rounded-xl border px-4 py-3 text-sm shadow-lg ${colors[type] || colors.info}`;
+      node.textContent = message;
+      el.toastHost.appendChild(node);
+      setTimeout(() => node.remove(), 5200);
+    }
+
+    function setActiveScreen(name, pricingReason) {
+      state.activeScreen = name;
+      if (pricingReason) state.pricingReason = pricingReason;
+
+      document.querySelectorAll('.screen').forEach((section) => {
+        section.classList.toggle('active', section.id === `screen-${name}`);
+      });
+
+      document.querySelectorAll('.nav-btn').forEach((btn) => {
+        const active = btn.dataset.nav === name;
+        btn.className = active
+          ? 'nav-btn w-full text-left px-4 py-3 rounded-xl bg-accent/15 border border-accent/30 text-accent font-medium'
+          : 'nav-btn w-full text-left px-4 py-3 rounded-xl hover:bg-slate-800 border border-transparent text-slate-200';
+      });
+
+      const meta = SCREEN_META[name];
+      el.screenTitle.textContent = meta.title;
+      el.screenSubtitle.textContent = meta.subtitle;
+
+      if (name === 'pricing') {
+        el.pricingAlert.classList.remove('hidden');
+        el.pricingAlertText.textContent = state.pricingReason || 'Select a plan to restore full platform access and increase daily AI credits.';
+      }
+    }
+
+    function appendChatMessage(role, content, tags) {
+      const wrapper = document.createElement('div');
+      wrapper.className = role === 'user'
+        ? 'flex justify-end'
+        : 'flex justify-start';
+
+      const bubble = document.createElement('div');
+      bubble.className = role === 'user'
+        ? 'max-w-[85%] rounded-2xl rounded-tr-sm bg-accent2/20 border border-accent2/30 px-4 py-3 text-sm'
+        : 'max-w-[85%] rounded-2xl rounded-tl-sm bg-slate-900 border border-edge px-4 py-3 text-sm';
+
+      const label = document.createElement('p');
+      label.className = 'text-[10px] uppercase tracking-wider mb-1 text-slate-400';
+      label.textContent = role === 'user' ? 'You' : 'AI Universe';
+
+      const body = document.createElement('p');
+      body.className = 'whitespace-pre-wrap leading-relaxed';
+      body.textContent = content;
+
+      bubble.appendChild(label);
+      bubble.appendChild(body);
+
+      if (tags && tags.length) {
+        const tagRow = document.createElement('div');
+        tagRow.className = 'mt-2 flex flex-wrap gap-2';
+        tags.forEach((tag) => {
+          const chip = document.createElement('span');
+          chip.className = 'text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-800 border border-edge text-slate-300';
+          chip.textContent = tag;
+          tagRow.appendChild(chip);
+        });
+        bubble.appendChild(tagRow);
+      }
+
+      wrapper.appendChild(bubble);
+      el.chatTimeline.appendChild(wrapper);
+      el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
+    }
+
+    function buildResponseTags(data, rawText) {
+      const tags = [];
+      if (data.word_limit_applied) tags.push('1000 Word Cap Applied');
+      if (data.censored) tags.push('Scoped Output');
+      if (data.credits_bypassed) tags.push('Credits Bypassed');
+      if (data.role) tags.push(`Role: ${data.role}`);
+      if (data.mode === 'admin_deep_scrape') tags.push('God Deep-Scrape');
+      if (rawText && rawText.trim().endsWith('…')) tags.push('Truncated Response');
+      return tags;
+    }
+
+    async function apiRequest(path, options) {
+      const url = `${getApiBase()}${path}`;
+      const response = await fetch(url, options);
+      let payload = null;
+
+      try {
+        payload = await response.json();
+      } catch {
+        payload = { message: 'Non-JSON response received from API.' };
+      }
+
+      return { response, payload };
+    }
+
+    function updateTrialPaywallAlert(payload) {
+      if (payload && payload.trialEndingSoon) {
+        el.trialPaywallAlert.classList.remove('hidden');
+        const timeHint = payload.timeLeftStr ? ` (${payload.timeLeftStr})` : '';
+        el.trialPaywallTime.textContent = `Urgent: your 7-day premium trial is in its final 24-hour window${timeHint}.`;
+        return;
+      }
+      el.trialPaywallAlert.classList.add('hidden');
+      el.trialPaywallTime.textContent = '';
+    }
+
+    function handlePaywallRedirect(response, payload) {
+      if (response.status !== 402 && response.status !== 429) return false;
+
+      updateTrialPaywallAlert(null);
+
+      const redirect = payload.redirect || '/pricing';
+      const reason = payload.message || 'Access restricted by billing policy.';
+      const composed = `${reason} Redirecting to ${redirect}.`;
+      showToast(composed, 'warn');
+      setActiveScreen('pricing', composed);
+      return true;
+    }
+
+    function generateShareBatchHash() {
+      const bytes = new Uint8Array(32);
+      crypto.getRandomValues(bytes);
+      return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function sendChatPrompt() {
+      const prompt = el.chatInput.value.trim();
+      if (!prompt) {
+        showToast('Enter a prompt before executing.', 'warn');
+        return;
+      }
+
+      const email = (el.userEmail.value || '').trim();
+      const fingerprint = (el.deviceFingerprint.value || '').trim();
+      if (!email || !fingerprint) {
+        showToast('Set client email and device fingerprint in the sidebar first.', 'error');
+        return;
+      }
+
+      appendChatMessage('user', prompt, ['Outbound Request']);
+      el.chatInput.value = '';
+      el.sendChatBtn.disabled = true;
+
+      try {
+        const { response, payload } = await apiRequest('/api/chat', {
+          method: 'POST',
+          headers: getClientHeaders(),
+          body: JSON.stringify({
+            prompt,
+            webSearchEnabled: true,
+          }),
+        });
+
+        if (handlePaywallRedirect(response, payload)) {
+          appendChatMessage('assistant', payload.message || 'Trial or credit limits reached.', ['Paywall Redirect']);
+          return;
+        }
+
+        if (!response.ok) {
+          const errText = payload.message || `Chat failed with status ${response.status}`;
+          appendChatMessage('assistant', errText, [`Error ${response.status}`]);
+          showToast(errText, 'error');
+          return;
+        }
+
+        const output = payload.output || '';
+        const tags = buildResponseTags(payload, output);
+        updateTrialPaywallAlert(payload);
+        appendChatMessage('assistant', output, tags);
+        showToast('Chat response received successfully.', 'success');
+      } catch (error) {
+        const errText = error.message || 'Network failure during chat execution.';
+        appendChatMessage('assistant', errText, ['Network Error']);
+        showToast(errText, 'error');
+      } finally {
+        el.sendChatBtn.disabled = false;
+      }
+    }
+
+    async function runDeepScrapeSearch() {
+      if (!state.adminUnlocked) {
+        showToast('Unlock God Mode with a valid admin key first.', 'warn');
+        return;
+      }
+
+      const query = el.deepScrapeQuery.value.trim();
+      if (!query) {
+        showToast('Enter a Deep-Scrape God Engine query.', 'warn');
+        return;
+      }
+
+      el.deepScrapeBtn.disabled = true;
+      logAdminConsole('DEEP-SCRAPE REQUEST', { query, adminDeepScrape: true });
+
+      try {
+        const { response, payload } = await apiRequest('/api/chat', {
+          method: 'POST',
+          headers: getAdminHeaders(),
+          body: JSON.stringify({
+            prompt: query,
+            adminDeepScrape: true,
+          }),
+        });
+
+        logAdminConsole(`DEEP-SCRAPE RESPONSE · HTTP ${response.status}`, payload);
+
+        if (!response.ok) {
+          showToast(payload.message || `Deep-Scrape failed (${response.status})`, 'error');
+          return;
+        }
+
+        showToast('Deep-Scrape God Engine completed.', 'success');
+      } catch (error) {
+        const failure = { success: false, message: error.message || 'Network failure' };
+        logAdminConsole('DEEP-SCRAPE ERROR', failure);
+        showToast(failure.message, 'error');
+      } finally {
+        el.deepScrapeBtn.disabled = false;
+      }
+    }
+
+    async function trackWhatsappShare() {
+      const email = (el.userEmail.value || '').trim();
+      const fingerprint = (el.deviceFingerprint.value || '').trim();
+      if (!email || !fingerprint) {
+        showToast('Set client email and device fingerprint before sharing.', 'error');
+        return;
+      }
+
+      const shareBatchHash = generateShareBatchHash();
+      const shareText = encodeURIComponent('Join me on AI Universe Core — unlock smarter enterprise AI workflows.');
+      const whatsappUrl = `https://wa.me/?text=${shareText}`;
+      window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
+
+      try {
+        const { response, payload } = await apiRequest('/api/user/whatsapp-share-track', {
+          method: 'POST',
+          headers: getClientHeaders(),
+          body: JSON.stringify({ share_batch_hash: shareBatchHash }),
+        });
+
+        if (handlePaywallRedirect(response, payload)) return;
+
+        if (!response.ok) {
+          const errText = payload.message || `Share tracking failed (${response.status})`;
+          showToast(errText, 'error');
+          return;
+        }
+
+        state.shareCountToday = payload.unique_shares_today || 0;
+        el.shareCountHint.textContent = String(state.shareCountToday);
+
+        if (payload.bonus_credit_awarded) {
+          el.creditHint.textContent = '3 max / day (bonus applied)';
+          showToast('Bonus credit awarded for today. You now have up to 3 daily credits.', 'success');
+        } else {
+          showToast(
+            `Share recorded. Unique shares today: ${payload.unique_shares_today}. Need ${payload.shares_required} for bonus.`,
+            'info'
+          );
+        }
+      } catch (error) {
+        showToast(error.message || 'WhatsApp tracking request failed.', 'error');
+      }
+    }
+
+    function logAdminConsole(label, payload) {
+      const stamp = new Date().toISOString();
+      const formatted = `[${stamp}] ${label}\n${JSON.stringify(payload, null, 2)}\n\n`;
+      el.adminConsole.textContent = formatted + el.adminConsole.textContent;
+    }
+
+    async function runAdminAction(path, body, label) {
+      if (!state.adminUnlocked) {
+        showToast('Unlock God Mode with a valid admin key first.', 'warn');
+        return;
+      }
+
+      try {
+        const { response, payload } = await apiRequest(path, {
+          method: 'POST',
+          headers: getAdminHeaders(),
+          body: JSON.stringify(body),
+        });
+
+        logAdminConsole(`${label} · HTTP ${response.status}`, payload);
+
+        if (!response.ok) {
+          showToast(payload.message || `${label} failed.`, 'error');
+          return;
+        }
+
+        showToast(`${label} dispatched successfully.`, 'success');
+      } catch (error) {
+        const failure = { success: false, message: error.message || 'Network failure' };
+        logAdminConsole(`${label} · ERROR`, failure);
+        showToast(failure.message, 'error');
+      }
+    }
+
+    function saveIdentity() {
+      localStorage.setItem(STORAGE_KEYS.apiBase, el.apiBase.value.trim());
+      localStorage.setItem(STORAGE_KEYS.email, el.userEmail.value.trim().toLowerCase());
+      localStorage.setItem(STORAGE_KEYS.fingerprint, el.deviceFingerprint.value.trim());
+      showToast('Client identity saved for API headers.', 'success');
+    }
+
+    function unlockGodMode() {
+      const key = el.adminKey.value.trim();
+      if (!key) {
+        showToast('Enter a master admin key.', 'warn');
+        return;
+      }
+      localStorage.setItem(STORAGE_KEYS.adminKey, key);
+      state.adminUnlocked = true;
+      el.godmodeLocked.classList.add('hidden');
+      el.godmodePanels.classList.remove('hidden');
+      showToast('God Mode session unlocked locally.', 'success');
+      logAdminConsole('SESSION', { status: 'admin_panel_unlocked' });
+    }
+
+    function ensureDeviceFingerprint() {
+      const existing = localStorage.getItem(STORAGE_KEYS.fingerprint);
+      if (existing) return existing;
+      const generated = generateShareBatchHash().slice(0, 40);
+      localStorage.setItem(STORAGE_KEYS.fingerprint, generated);
+      return generated;
+    }
+
+    function loadPersistedValues() {
+      el.apiBase.value = localStorage.getItem(STORAGE_KEYS.apiBase) || window.location.origin;
+      el.userEmail.value = localStorage.getItem(STORAGE_KEYS.email) || '';
+      el.deviceFingerprint.value = ensureDeviceFingerprint();
+      el.adminKey.value = localStorage.getItem(STORAGE_KEYS.adminKey) || '';
+      localStorage.removeItem('auc_testing_master_key');
+      localStorage.removeItem('auc_web_search_enabled');
+      if (el.adminKey.value) {
+        state.adminUnlocked = true;
+        el.godmodeLocked.classList.add('hidden');
+        el.godmodePanels.classList.remove('hidden');
+      }
+    }
+
+    function bindEvents() {
+      document.querySelectorAll('.nav-btn').forEach((btn) => {
+        btn.addEventListener('click', () => setActiveScreen(btn.dataset.nav));
+      });
+
+      el.saveIdentityBtn.addEventListener('click', saveIdentity);
+      el.sendChatBtn.addEventListener('click', sendChatPrompt);
+      el.chatInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' && !event.shiftKey) {
+          event.preventDefault();
+          sendChatPrompt();
+        }
+      });
+      el.trialUpgradeBtn.addEventListener('click', () => setActiveScreen('pricing'));
+      el.whatsappShareBtn.addEventListener('click', trackWhatsappShare);
+      el.deepScrapeBtn.addEventListener('click', runDeepScrapeSearch);
+      el.deepScrapeQuery.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runDeepScrapeSearch();
+        }
+      });
+      el.unlockGodModeBtn.addEventListener('click', unlockGodMode);
+
+      el.scrapeTelegramBtn.addEventListener('click', () => {
+        const targetGroupId = el.targetGroupId.value.trim();
+        if (!targetGroupId) {
+          showToast('targetGroupId is required for Telegram scrape.', 'warn');
+          return;
+        }
+        runAdminAction('/api/admin/scrape-telegram', { targetGroupId }, 'Telegram Scrape');
+      });
+
+      el.triggerOutreachBtn.addEventListener('click', () => {
+        runAdminAction('/api/admin/trigger-outreach', {
+          campaignName: el.campaignName.value.trim(),
+          audienceSegment: el.audienceSegment.value.trim(),
+          dryRun: el.dryRun.checked,
+        }, 'B2B Outreach');
+      });
+
+      document.querySelectorAll('.pricing-buy').forEach((button) => {
+        button.addEventListener('click', () => {
+          const plan = button.dataset.plan;
+          showToast(`Subscription checkout flow initiated for plan: ${plan}.`, 'info');
+        });
+      });
+    }
+
+    async function checkHealth() {
+      try {
+        const { response, payload } = await apiRequest('/health', { method: 'GET' });
+        if (response.ok) {
+          el.statusPill.textContent = `System ${payload.status || 'online'}`;
+          el.statusPill.className = 'text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+        } else {
+          throw new Error('health not ok');
+        }
+      } catch {
+        el.statusPill.textContent = 'API Unreachable';
+        el.statusPill.className = 'text-xs px-3 py-1 rounded-full bg-red-500/20 text-red-300 border border-red-500/30';
+      }
+    }
+
+    loadPersistedValues();
+    bindEvents();
+    updateTrialPaywallAlert(null);
+    checkHealth();
+    appendChatMessage('assistant', 'Welcome to AI Universe Core. Configure your email and device fingerprint, then execute your first prompt.', ['Ready']);
+  </script>
+</body>
+</html>
