@@ -1354,6 +1354,48 @@ app.post('/api/chat', authMiddleware, enforceClientRules, async (req, res) => {
   }
 });
 
+async function deepScrapeRouteHandler(req, res) {
+  try {
+    if (req.role !== 'MASTER_OWNER') {
+      return sendError(res, 403, 'MASTER_ONLY', 'Deep-Scrape requires MASTER_OWNER privileges.');
+    }
+
+    const { prompt, query } = req.body || {};
+    const finalPrompt = (typeof prompt === 'string' ? prompt : typeof query === 'string' ? query : '').trim();
+    if (!finalPrompt) {
+      return sendError(res, 400, 'PROMPT_REQUIRED', 'A non-empty prompt or query is required.');
+    }
+
+    console.log('[god-scrape] Deep-Scrape God Engine activated via dedicated endpoint.');
+    const deepContext = await fetchAdminDeepScrapeContext(finalPrompt);
+    console.log(`[god-scrape] Injected ${deepContext.length} characters of deep context.`);
+
+    await streamAiCompletionToClient(res, finalPrompt, {
+      uncensored: true,
+      webContext: deepContext,
+      mode: 'admin-deep',
+      applyWordLimit: false,
+      meta: {
+        role: 'MASTER_OWNER',
+        responseMode: 'admin_deep_scrape',
+        creditsBypassed: true,
+      },
+    });
+  } catch (err) {
+    console.error('[deep-scrape]', err.message);
+    if (!res.headersSent) {
+      sendError(res, 500, 'DEEP_SCRAPE_FAILED', err.message || 'Deep-Scrape execution failed.');
+    } else {
+      writeSseFrame(res, { error: true, message: err.message || 'Deep-Scrape stream failed.' });
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }
+}
+
+app.post('/api/deep-scrape', authMiddleware, deepScrapeRouteHandler);
+app.post('/deep-scrape', authMiddleware, deepScrapeRouteHandler);
+
 app.post('/api/share-viral', authMiddleware, enforceClientRules, async (req, res) => {
   try {
     const { share_batch_hash: shareBatchHash } = req.body || {};
