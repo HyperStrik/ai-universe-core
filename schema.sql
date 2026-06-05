@@ -25,3 +25,22 @@ CREATE TABLE IF NOT EXISTS whatsapp_shares (
 CREATE INDEX IF NOT EXISTS idx_users_device_fingerprint ON users(device_fingerprint);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_shares_user_id ON whatsapp_shares(user_id);
 CREATE INDEX IF NOT EXISTS idx_whatsapp_shares_shared_at ON whatsapp_shares(shared_at);
+
+-- Awards +1 bonus daily credit after 3 unique viral shares in a day
+CREATE OR REPLACE FUNCTION increment_user_limit(p_email TEXT)
+RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  UPDATE users
+  SET whatsapp_bonus_awarded_date = CURRENT_DATE,
+      whatsapp_shares_today = GREATEST(whatsapp_shares_today, 3),
+      whatsapp_share_day = CURRENT_DATE
+  WHERE email = p_email
+    AND (
+      whatsapp_bonus_awarded_date IS NULL
+      OR whatsapp_bonus_awarded_date < CURRENT_DATE
+    );
+END;
+$$;

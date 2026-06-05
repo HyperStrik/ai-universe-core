@@ -1,6 +1,6 @@
 {
   "name": "ai-universe-core",
-  "version": "1.0.0",
+  "version": "5.0.0",
   "description": "",
   "main": "server.js",
   "scripts": {
@@ -12,11 +12,14 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@supabase/supabase-js": "^2.107.0",
     "axios": "^1.17.0",
+    "bullmq": "^5.78.0",
     "cors": "^2.8.6",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "fs-extra": "^11.3.5",
+    "ioredis": "^5.11.1",
     "openai": "^6.41.0",
     "pg": "^8.21.0",
     "stripe": "^22.2.0"

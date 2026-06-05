@@ -31,6 +31,21 @@
     .chat-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 8px; }
     .console-scroll { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .god-scrape-glow { box-shadow: 0 0 24px rgba(59, 130, 246, 0.25), inset 0 0 0 1px rgba(96, 165, 250, 0.35); }
+    .truncation-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      margin-top: 0.65rem;
+      padding: 0.35rem 0.65rem;
+      border-radius: 0.5rem;
+      border: 1px solid rgba(245, 158, 11, 0.45);
+      background: rgba(245, 158, 11, 0.12);
+      color: #fcd34d;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
   </style>
 </head>
 <body class="h-full bg-surface text-slate-100 antialiased">
@@ -258,11 +273,15 @@
       },
     };
 
+    const TRUNCATION_BADGE = '[TRUNCATED_BADGE_ACTIVE]';
+    const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+
     const state = {
       activeScreen: 'chat',
       adminUnlocked: false,
       shareCountToday: 0,
       pricingReason: '',
+      sessionMsRemaining: null,
     };
 
     const el = {
@@ -363,11 +382,9 @@
       }
     }
 
-    function appendChatMessage(role, content, tags) {
+    function createChatBubble(role, content, tags) {
       const wrapper = document.createElement('div');
-      wrapper.className = role === 'user'
-        ? 'flex justify-end'
-        : 'flex justify-start';
+      wrapper.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
 
       const bubble = document.createElement('div');
       bubble.className = role === 'user'
@@ -380,7 +397,7 @@
 
       const body = document.createElement('p');
       body.className = 'whitespace-pre-wrap leading-relaxed';
-      body.textContent = content;
+      body.textContent = content || '';
 
       bubble.appendChild(label);
       bubble.appendChild(body);
@@ -400,6 +417,24 @@
       wrapper.appendChild(bubble);
       el.chatTimeline.appendChild(wrapper);
       el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
+      return { wrapper, bubble, body };
+    }
+
+    function appendChatMessage(role, content, tags) {
+      createChatBubble(role, content, tags);
+    }
+
+    function appendStreamingAssistantMessage(initialTags) {
+      const node = createChatBubble('assistant', '', initialTags || ['SSE Stream']);
+      return node;
+    }
+
+    function appendTruncationBadge(bubble) {
+      if (bubble.querySelector('.truncation-badge')) return;
+      const badge = document.createElement('span');
+      badge.className = 'truncation-badge';
+      badge.textContent = 'Response trimmed at 1000-word enterprise cap';
+      bubble.appendChild(badge);
     }
 
     function buildResponseTags(data, rawText) {
@@ -427,11 +462,23 @@
       return { response, payload };
     }
 
+    function shouldShowTrialPaywall(payload) {
+      if (!payload) return false;
+      if (payload.trialEndingSoon) return true;
+      if (typeof payload.msRemaining === 'number' && payload.msRemaining > 0 && payload.msRemaining <= TWENTY_FOUR_HOURS_MS) {
+        return true;
+      }
+      if (typeof state.sessionMsRemaining === 'number' && state.sessionMsRemaining > 0 && state.sessionMsRemaining <= TWENTY_FOUR_HOURS_MS) {
+        return true;
+      }
+      return false;
+    }
+
     function updateTrialPaywallAlert(payload) {
-      if (payload && payload.trialEndingSoon) {
+      if (shouldShowTrialPaywall(payload)) {
         el.trialPaywallAlert.classList.remove('hidden');
-        const timeHint = payload.timeLeftStr ? ` (${payload.timeLeftStr})` : '';
-        el.trialPaywallTime.textContent = `Urgent: your 7-day premium trial is in its final 24-hour window${timeHint}.`;
+        const timeHint = payload?.timeLeftStr ? ` (${payload.timeLeftStr})` : '';
+        el.trialPaywallTime.textContent = `Urgent: your 7-day premium trial has less than 24 hours remaining${timeHint}.`;
         return;
       }
       el.trialPaywallAlert.classList.add('hidden');
@@ -457,6 +504,76 @@
       return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
     }
 
+    async function consumeSseChatStream(response, streamNode, options) {
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let meta = {};
+      let fullText = '';
+      let truncated = false;
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const frames = buffer.split('\n\n');
+        buffer = frames.pop() || '';
+
+        for (const frame of frames) {
+          const dataLine = frame
+            .split('\n')
+            .map((line) => line.trim())
+            .find((line) => line.startsWith('data:'));
+
+          if (!dataLine) continue;
+          const payloadRaw = dataLine.replace(/^data:\s*/, '');
+          if (payloadRaw === '[DONE]') continue;
+
+          let payload;
+          try {
+            payload = JSON.parse(payloadRaw);
+          } catch {
+            continue;
+          }
+
+          if (payload.error) {
+            throw new Error(payload.message || 'SSE stream reported an error.');
+          }
+
+          if (payload.type === 'meta') {
+            meta = payload;
+            updateTrialPaywallAlert(payload);
+            if (options?.onMeta) options.onMeta(payload);
+            continue;
+          }
+
+          if (payload.content) {
+            if (payload.content === TRUNCATION_BADGE || payload.truncated) {
+              truncated = true;
+              appendTruncationBadge(streamNode.bubble);
+              continue;
+            }
+
+            if (payload.content.includes(TRUNCATION_BADGE)) {
+              const clean = payload.content.replace(TRUNCATION_BADGE, '');
+              fullText += clean;
+              streamNode.body.textContent = fullText;
+              truncated = true;
+              appendTruncationBadge(streamNode.bubble);
+              continue;
+            }
+
+            fullText += payload.content;
+            streamNode.body.textContent = fullText;
+            el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
+          }
+        }
+      }
+
+      return { meta, fullText, truncated };
+    }
+
     async function sendChatPrompt() {
       const prompt = el.chatInput.value.trim();
       if (!prompt) {
@@ -475,34 +592,63 @@
       el.chatInput.value = '';
       el.sendChatBtn.disabled = true;
 
+      const streamNode = appendStreamingAssistantMessage(['SSE Live Stream']);
+
       try {
-        const { response, payload } = await apiRequest('/api/chat', {
+        const response = await fetch(`${getApiBase()}/api/chat`, {
           method: 'POST',
-          headers: getClientHeaders(),
+          headers: {
+            ...getClientHeaders(),
+            Accept: 'text/event-stream',
+          },
           body: JSON.stringify({
             prompt,
             webSearchEnabled: true,
+            stream: true,
           }),
         });
 
-        if (handlePaywallRedirect(response, payload)) {
-          appendChatMessage('assistant', payload.message || 'Trial or credit limits reached.', ['Paywall Redirect']);
-          return;
-        }
+        const contentType = response.headers.get('content-type') || '';
 
-        if (!response.ok) {
+        if (!response.ok && !contentType.includes('text/event-stream')) {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch {
+            payload = { message: `Chat failed with status ${response.status}` };
+          }
+
+          streamNode.wrapper.remove();
+
+          if (handlePaywallRedirect(response, payload)) {
+            appendChatMessage('assistant', payload.message || 'Trial or credit limits reached.', ['Paywall Redirect']);
+            return;
+          }
+
           const errText = payload.message || `Chat failed with status ${response.status}`;
           appendChatMessage('assistant', errText, [`Error ${response.status}`]);
           showToast(errText, 'error');
           return;
         }
 
-        const output = payload.output || '';
-        const tags = buildResponseTags(payload, output);
-        updateTrialPaywallAlert(payload);
-        appendChatMessage('assistant', output, tags);
-        showToast('Chat response received successfully.', 'success');
+        const result = await consumeSseChatStream(response, streamNode);
+        const tags = buildResponseTags(result.meta, result.fullText);
+        if (result.truncated) tags.push('1000 Word Cap Applied');
+
+        const tagRow = document.createElement('div');
+        tagRow.className = 'mt-2 flex flex-wrap gap-2';
+        tags.forEach((tag) => {
+          const chip = document.createElement('span');
+          chip.className = 'text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-800 border border-edge text-slate-300';
+          chip.textContent = tag;
+          tagRow.appendChild(chip);
+        });
+        streamNode.bubble.appendChild(tagRow);
+
+        updateTrialPaywallAlert(result.meta);
+        showToast('SSE chat stream completed successfully.', 'success');
       } catch (error) {
+        streamNode.wrapper.remove();
         const errText = error.message || 'Network failure during chat execution.';
         appendChatMessage('assistant', errText, ['Network Error']);
         showToast(errText, 'error');
@@ -524,26 +670,86 @@
       }
 
       el.deepScrapeBtn.disabled = true;
-      logAdminConsole('DEEP-SCRAPE REQUEST', { query, adminDeepScrape: true });
+      logAdminConsole('DEEP-SCRAPE REQUEST', { query, adminDeepScrape: true, stream: true });
 
       try {
-        const { response, payload } = await apiRequest('/api/chat', {
+        const response = await fetch(`${getApiBase()}/api/chat`, {
           method: 'POST',
-          headers: getAdminHeaders(),
+          headers: {
+            ...getAdminHeaders(),
+            Accept: 'text/event-stream',
+          },
           body: JSON.stringify({
             prompt: query,
             adminDeepScrape: true,
+            stream: true,
           }),
         });
 
-        logAdminConsole(`DEEP-SCRAPE RESPONSE · HTTP ${response.status}`, payload);
-
-        if (!response.ok) {
+        const contentType = response.headers.get('content-type') || '';
+        if (!response.ok && !contentType.includes('text/event-stream')) {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch {
+            payload = { message: `Deep-Scrape failed (${response.status})` };
+          }
+          logAdminConsole(`DEEP-SCRAPE RESPONSE · HTTP ${response.status}`, payload);
           showToast(payload.message || `Deep-Scrape failed (${response.status})`, 'error');
           return;
         }
 
-        showToast('Deep-Scrape God Engine completed.', 'success');
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let aggregate = '';
+        let meta = {};
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+
+          for (const frame of frames) {
+            const dataLine = frame
+              .split('\n')
+              .map((line) => line.trim())
+              .find((line) => line.startsWith('data:'));
+
+            if (!dataLine) continue;
+            const payloadRaw = dataLine.replace(/^data:\s*/, '');
+            if (payloadRaw === '[DONE]') continue;
+
+            let payload;
+            try {
+              payload = JSON.parse(payloadRaw);
+            } catch {
+              continue;
+            }
+
+            if (payload.type === 'meta') {
+              meta = payload;
+              logAdminConsole('DEEP-SCRAPE META', payload);
+              continue;
+            }
+
+            if (payload.content && payload.content !== TRUNCATION_BADGE) {
+              aggregate += payload.content;
+              el.adminConsole.textContent = `[${new Date().toISOString()}] DEEP-SCRAPE STREAM\n${aggregate}\n\n` + el.adminConsole.textContent;
+            }
+          }
+        }
+
+        logAdminConsole(`DEEP-SCRAPE COMPLETE · HTTP ${response.status}`, {
+          role: meta.role || 'MASTER_OWNER',
+          mode: meta.mode || 'admin_deep_scrape',
+          chars_streamed: aggregate.length,
+          routing_mode: meta.routing_mode,
+        });
+        showToast('Deep-Scrape God Engine SSE stream completed.', 'success');
       } catch (error) {
         const failure = { success: false, message: error.message || 'Network failure' };
         logAdminConsole('DEEP-SCRAPE ERROR', failure);
@@ -567,7 +773,7 @@
       window.open(whatsappUrl, '_blank', 'noopener,noreferrer');
 
       try {
-        const { response, payload } = await apiRequest('/api/user/whatsapp-share-track', {
+        const { response, payload } = await apiRequest('/api/share-viral', {
           method: 'POST',
           headers: getClientHeaders(),
           body: JSON.stringify({ share_batch_hash: shareBatchHash }),
@@ -728,7 +934,8 @@
       try {
         const { response, payload } = await apiRequest('/health', { method: 'GET' });
         if (response.ok) {
-          el.statusPill.textContent = `System ${payload.status || 'online'}`;
+          const redisHint = payload.redis ? ` · Redis ${payload.redis}` : '';
+          el.statusPill.textContent = `System ${payload.status || 'online'}${redisHint}`;
           el.statusPill.className = 'text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
         } else {
           throw new Error('health not ok');
@@ -739,10 +946,34 @@
       }
     }
 
+    async function loadSessionTrialState() {
+      const email = (el.userEmail.value || '').trim();
+      const fingerprint = (el.deviceFingerprint.value || '').trim();
+      if (!email || !fingerprint) return;
+
+      try {
+        const { response, payload } = await apiRequest('/api/user/session', {
+          method: 'GET',
+          headers: getClientHeaders(),
+        });
+
+        if (!response.ok) return;
+
+        state.sessionMsRemaining = payload.msRemaining;
+        if (typeof payload.creditsUsed === 'number' && typeof payload.creditLimit === 'number') {
+          el.creditHint.textContent = `${payload.creditsUsed}/${payload.creditLimit} used today`;
+        }
+        updateTrialPaywallAlert(payload);
+      } catch {
+        // session probe is best-effort on boot
+      }
+    }
+
     loadPersistedValues();
     bindEvents();
     updateTrialPaywallAlert(null);
     checkHealth();
+    loadSessionTrialState();
     appendChatMessage('assistant', 'Welcome to AI Universe Core. Configure your email and device fingerprint, then execute your first prompt.', ['Ready']);
   </script>
 </body>
