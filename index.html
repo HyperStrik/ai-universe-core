@@ -69,7 +69,7 @@
 
       <div class="p-4 border-t border-edge space-y-3">
         <label class="block text-xs text-slate-400 uppercase tracking-wide">API Base URL</label>
-        <input id="apiBase" type="url" placeholder="http://localhost:5000" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        <input id="apiBase" type="url" placeholder="https://onrender.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         <label class="block text-xs text-slate-400 uppercase tracking-wide">Client Email</label>
         <input id="userEmail" type="email" placeholder="user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         <label class="block text-xs text-slate-400 uppercase tracking-wide">Device Fingerprint</label>
@@ -251,6 +251,8 @@
   <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
   <script>
+    const PRODUCTION_API_BASE = 'https://onrender.com';
+
     const STORAGE_KEYS = {
       apiBase: 'auc_api_base',
       email: 'auc_user_email',
@@ -319,10 +321,16 @@
       toastHost: document.getElementById('toastHost'),
     };
 
+    function normalizeApiBase(value) {
+      const trimmed = (value || '').trim().replace(/\/$/, '');
+      if (!trimmed) return PRODUCTION_API_BASE;
+      if (/^https?:\/\/localhost(?::\d+)?$/i.test(trimmed)) return PRODUCTION_API_BASE;
+      return trimmed;
+    }
+
     function getApiBase() {
-      const raw = (el.apiBase.value || localStorage.getItem(STORAGE_KEYS.apiBase) || '').trim();
-      if (!raw) return window.location.origin;
-      return raw.replace(/\/$/, '');
+      const raw = el.apiBase.value || localStorage.getItem(STORAGE_KEYS.apiBase) || PRODUCTION_API_BASE;
+      return normalizeApiBase(raw);
     }
 
     function getClientHeaders() {
@@ -868,7 +876,12 @@
     }
 
     function loadPersistedValues() {
-      el.apiBase.value = localStorage.getItem(STORAGE_KEYS.apiBase) || window.location.origin;
+      const storedApiBase = localStorage.getItem(STORAGE_KEYS.apiBase);
+      const resolvedApiBase = normalizeApiBase(storedApiBase || PRODUCTION_API_BASE);
+      el.apiBase.value = resolvedApiBase;
+      if (!storedApiBase || /^https?:\/\/localhost(?::\d+)?$/i.test(storedApiBase.trim())) {
+        localStorage.setItem(STORAGE_KEYS.apiBase, PRODUCTION_API_BASE);
+      }
       el.userEmail.value = localStorage.getItem(STORAGE_KEYS.email) || '';
       el.deviceFingerprint.value = ensureDeviceFingerprint();
       el.adminKey.value = localStorage.getItem(STORAGE_KEYS.adminKey) || '';
