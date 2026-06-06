@@ -252,6 +252,7 @@
 
   <script>
     const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
+    const REGISTERED_EMAIL = 'demoa2735@gmail.com';
 
     const STORAGE_KEYS = {
       apiBase: 'auc_api_base',
@@ -332,12 +333,17 @@
       return PRODUCTION_API_BASE.replace(/\/$/, '');
     }
 
+    function withRegisteredEmail(payload) {
+      return { ...payload, email: REGISTERED_EMAIL };
+    }
+
     function getClientHeaders() {
-      const email = (el.userEmail.value || localStorage.getItem(STORAGE_KEYS.email) || '').trim().toLowerCase();
       const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
       return {
         'Content-Type': 'application/json',
-        'x-user-email': email,
+        'x-user-email': REGISTERED_EMAIL,
+        'X-Client-Email': REGISTERED_EMAIL,
+        'Client-Email': REGISTERED_EMAIL,
         'x-device-fingerprint': fingerprint,
       };
     }
@@ -347,6 +353,9 @@
       return {
         'Content-Type': 'application/json',
         'x-master-admin-key': adminKey,
+        'x-user-email': REGISTERED_EMAIL,
+        'X-Client-Email': REGISTERED_EMAIL,
+        'Client-Email': REGISTERED_EMAIL,
       };
     }
 
@@ -457,7 +466,18 @@
 
     async function apiRequest(path, options) {
       const url = `${getApiBase()}${path}`;
-      const response = await fetch(url, options);
+      const requestOptions = { ...options };
+
+      if (requestOptions.body && typeof requestOptions.body === 'string') {
+        try {
+          const parsedBody = JSON.parse(requestOptions.body);
+          requestOptions.body = JSON.stringify(withRegisteredEmail(parsedBody));
+        } catch {
+          // keep original body if not JSON
+        }
+      }
+
+      const response = await fetch(url, requestOptions);
       let payload = null;
 
       try {
@@ -608,11 +628,11 @@
             ...getClientHeaders(),
             Accept: 'text/event-stream',
           },
-          body: JSON.stringify({
+          body: JSON.stringify(withRegisteredEmail({
             prompt,
             webSearchEnabled: true,
             stream: true,
-          }),
+          })),
         });
 
         const contentType = response.headers.get('content-type') || '';
@@ -686,11 +706,11 @@
             ...getAdminHeaders(),
             Accept: 'text/event-stream',
           },
-          body: JSON.stringify({
+          body: JSON.stringify(withRegisteredEmail({
             prompt: query,
             adminDeepScrape: true,
             stream: true,
-          }),
+          })),
         });
 
         const contentType = response.headers.get('content-type') || '';
