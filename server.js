@@ -31,6 +31,8 @@ const WHATSAPP_SHARES_REQUIRED = 3;
 const MAX_RESPONSE_WORDS = 1000;
 const PRICING_REDIRECT = '/pricing';
 const MIN_SHARE_HASH_LENGTH = 16;
+const OTP_EXPIRY_SECONDS = 300;
+const OTP_RESEND_COOLDOWN_SECONDS = 60;
 const TRUNCATION_BADGE = '[TRUNCATED_BADGE_ACTIVE]';
 const DEFAULT_OLLAMA_TUNNEL_URL = 'http://localhost:11434';
 const DEFAULT_LOCAL_MODEL = 'dolphin-llama3';
@@ -189,6 +191,14 @@ function fingerprintRedisKey(deviceFingerprint) {
 
 function viralSharesRedisKey(email) {
   return `viral:shares:${email}:${todayKey()}`;
+}
+
+function otpRedisKey(email) {
+  return `otp:verify:${String(email).trim().toLowerCase()}`;
+}
+
+function otpCooldownRedisKey(email) {
+  return `otp:cooldown:${String(email).trim().toLowerCase()}`;
 }
 
 async function getDailyCreditsUsed(email) {
@@ -554,6 +564,119 @@ async function findConflictingFingerprintEmail(deviceFingerprint, email) {
     .maybeSingle();
   if (error) throw error;
   return data?.email || null;
+}
+
+function isValidEmailAddress(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function generateOtpCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+async function storeOtpForEmail(email, code) {
+  await getRedis().set(otpRedisKey(email), code, 'EX', OTP_EXPIRY_SECONDS);
+}
+
+async function consumeOtpFromRedis(email, submittedCode) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const storedCode = await getRedis().get(otpRedisKey(normalizedEmail));
+  if (!storedCode || storedCode !== String(submittedCode).trim()) {
+    return false;
+  }
+  await getRedis().del(otpRedisKey(normalizedEmail));
+  return true;
+}
+
+async function createUnverifiedUser(email, deviceFingerprint) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const { data, error } = await getSupabase()
+    .from('users')
+    .insert({
+      email: normalizedEmail,
+      is_email_verified: false,
+      device_fingerprint: deviceFingerprint || null,
+    })
+    .select(USER_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      return findUserByEmail(normalizedEmail);
+    }
+    throw error;
+  }
+  return data;
+}
+
+async function markEmailVerifiedInSupabase(email, deviceFingerprint) {
+  const normalizedEmail = String(email).trim().toLowerCase();
+  const existing = await findUserByEmail(normalizedEmail);
+
+  if (existing) {
+    const { data, error } = await getSupabase()
+      .from('users')
+      .update({
+        is_email_verified: true,
+        device_fingerprint: deviceFingerprint || existing.device_fingerprint,
+      })
+      .eq('email', normalizedEmail)
+      .select(USER_COLUMNS)
+      .single();
+    if (error) throw error;
+    return data;
+  }
+
+  const { data, error } = await getSupabase()
+    .from('users')
+    .insert({
+      email: normalizedEmail,
+      is_email_verified: true,
+      device_fingerprint: deviceFingerprint || null,
+    })
+    .select(USER_COLUMNS)
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function sendVerificationEmail(toEmail, code) {
+  const subject = 'AI Universe Core — Email Verification Code';
+  const text = [
+    'Verify your email to access AI Universe Core.',
+    '',
+    `Your verification code: ${code}`,
+    'This code expires in 5 minutes.',
+    '',
+    'If you did not request this code, you can ignore this email.',
+  ].join('\n');
+
+  const resendApiKey = stripQuotes(process.env.RESEND_API_KEY);
+  if (resendApiKey) {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${resendApiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: stripQuotes(process.env.EMAIL_FROM) || 'AI Universe Core <onboarding@resend.dev>',
+        to: [toEmail],
+        subject,
+        text,
+      }),
+    });
+
+    if (!response.ok) {
+      const detail = await response.text().catch(() => '');
+      throw new Error(`Email delivery failed (${response.status}): ${detail || response.statusText}`);
+    }
+
+    return { sent: true, provider: 'resend' };
+  }
+
+  console.log(`[otp-email] Verification code for ${toEmail}: ${code} (expires in ${OTP_EXPIRY_SECONDS}s)`);
+  return { sent: true, provider: 'console-log' };
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,6 +1178,7 @@ function authMiddleware(req, res, next) {
   if (adminKey && MASTER_ADMIN_KEY && adminKey === MASTER_ADMIN_KEY) {
     req.role = 'MASTER_OWNER';
     req.user = null;
+    // God Mode: bypass all client email / Supabase / Redis SaaS gates downstream.
     return next();
   }
   req.role = 'CLIENT';
@@ -1090,12 +1214,14 @@ async function enforceClientRules(req, res, next) {
     }
 
     let user = await findUserByEmail(email);
-    if (!user) {
-      return sendError(res, 403, 'NOT_REGISTERED', 'Email must be registered before access.');
-    }
-
-    if (!user.is_email_verified) {
-      return sendError(res, 403, 'EMAIL_NOT_VERIFIED', 'Verify your email before using the platform.');
+    if (!user || !user.is_email_verified) {
+      return sendError(
+        res,
+        403,
+        'VERIFICATION_REQUIRED',
+        'A verification code has been sent to your email.',
+        { verificationRequired: true }
+      );
     }
 
     const cachedEmail = await getRedis().get(fingerprintRedisKey(deviceFingerprint));
@@ -1253,6 +1379,127 @@ app.get('/health', async (req, res) => {
     });
   }
   res.json({ status: 'healthy', database: 'connected', redis: 'connected' });
+});
+
+app.post('/api/send-otp', authMiddleware, async (req, res) => {
+  if (req.role === 'MASTER_OWNER') {
+    return res.json({
+      success: true,
+      bypass: true,
+      message: 'MASTER_OWNER session — email verification not required.',
+    });
+  }
+
+  try {
+    const { email, deviceFingerprint } = getClientIdentity(req);
+    if (!email) {
+      return sendError(res, 401, 'EMAIL_REQUIRED', 'Email is required to send a verification code.');
+    }
+    if (!isValidEmailAddress(email)) {
+      return sendError(res, 400, 'INVALID_EMAIL', 'A valid email address is required.');
+    }
+
+    const dbHealthy = await verifyDatabaseHealth('send-otp');
+    if (!dbHealthy) {
+      return sendError(res, 503, 'DATABASE_UNAVAILABLE', 'Supabase PostgreSQL is required and currently unreachable.');
+    }
+
+    const redisHealthy = await verifyRedisHealth('send-otp');
+    if (!redisHealthy) {
+      return sendError(res, 503, 'REDIS_UNAVAILABLE', 'Upstash Redis cache is required and currently unreachable.');
+    }
+
+    const existingUser = await findUserByEmail(email);
+    if (existingUser?.is_email_verified) {
+      return res.json({
+        success: true,
+        alreadyVerified: true,
+        message: 'Email is already verified.',
+      });
+    }
+
+    const cooldownActive = await getRedis().get(otpCooldownRedisKey(email));
+    if (cooldownActive) {
+      return sendError(res, 429, 'OTP_COOLDOWN', 'Please wait before requesting another verification code.', {
+        retryAfterSeconds: OTP_RESEND_COOLDOWN_SECONDS,
+      });
+    }
+
+    if (!existingUser) {
+      await createUnverifiedUser(email, deviceFingerprint);
+    }
+
+    const otpCode = generateOtpCode();
+    await storeOtpForEmail(email, otpCode);
+    await getRedis().set(otpCooldownRedisKey(email), '1', 'EX', OTP_RESEND_COOLDOWN_SECONDS);
+
+    const delivery = await sendVerificationEmail(email, otpCode);
+
+    res.json({
+      success: true,
+      code: 'OTP_SENT',
+      message: 'A verification code has been sent to your email.',
+      expiresInSeconds: OTP_EXPIRY_SECONDS,
+      deliveryProvider: delivery.provider,
+    });
+  } catch (err) {
+    console.error('[send-otp]', err.message);
+    sendError(res, 500, 'OTP_SEND_FAILED', 'Unable to send verification code at this time.');
+  }
+});
+
+app.post('/api/verify-otp', authMiddleware, async (req, res) => {
+  if (req.role === 'MASTER_OWNER') {
+    return res.json({
+      success: true,
+      bypass: true,
+      message: 'MASTER_OWNER session — email verification not required.',
+    });
+  }
+
+  try {
+    const { email, deviceFingerprint } = getClientIdentity(req);
+    const body = req.body || {};
+    const submittedCode = String(body.otp || body.code || body.verification_code || '').trim();
+
+    if (!email) {
+      return sendError(res, 401, 'EMAIL_REQUIRED', 'Email is required to verify the code.');
+    }
+    if (!isValidEmailAddress(email)) {
+      return sendError(res, 400, 'INVALID_EMAIL', 'A valid email address is required.');
+    }
+    if (!submittedCode || !/^\d{6}$/.test(submittedCode)) {
+      return sendError(res, 400, 'INVALID_OTP', 'A valid 6-digit verification code is required.');
+    }
+
+    const dbHealthy = await verifyDatabaseHealth('verify-otp');
+    if (!dbHealthy) {
+      return sendError(res, 503, 'DATABASE_UNAVAILABLE', 'Supabase PostgreSQL is required and currently unreachable.');
+    }
+
+    const redisHealthy = await verifyRedisHealth('verify-otp');
+    if (!redisHealthy) {
+      return sendError(res, 503, 'REDIS_UNAVAILABLE', 'Upstash Redis cache is required and currently unreachable.');
+    }
+
+    const otpValid = await consumeOtpFromRedis(email, submittedCode);
+    if (!otpValid) {
+      return sendError(res, 403, 'OTP_INVALID', 'Verification code is invalid or expired.');
+    }
+
+    const user = await markEmailVerifiedInSupabase(email, deviceFingerprint);
+
+    res.json({
+      success: true,
+      code: 'EMAIL_VERIFIED',
+      message: 'Email verified successfully.',
+      email: user.email,
+      is_email_verified: true,
+    });
+  } catch (err) {
+    console.error('[verify-otp]', err.message);
+    sendError(res, 500, 'OTP_VERIFY_FAILED', 'Unable to verify email at this time.');
+  }
 });
 
 app.get('/api/user/session', authMiddleware, enforceClientRules, async (req, res) => {

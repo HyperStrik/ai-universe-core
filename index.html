@@ -72,6 +72,38 @@
         <input id="apiBase" type="url" placeholder="https://ai-universe-core.onrender.com/" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         <label class="block text-xs text-slate-400 uppercase tracking-wide">Client Email</label>
         <input id="userEmail" type="email" placeholder="user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+
+        <div id="otpVerificationPanel" class="hidden rounded-xl border border-accent2/40 bg-gradient-to-br from-accent2/10 to-slate-900 p-3 space-y-3 shadow-lg shadow-accent2/10">
+          <p class="text-xs font-semibold uppercase tracking-wide text-accent2">Email Verification Required</p>
+          <p id="otpVerificationMessage" class="text-xs text-slate-400 leading-relaxed">
+            A verification code has been sent to your email. Enter it below to unlock chat access.
+          </p>
+          <label class="block text-xs text-slate-400 uppercase tracking-wide">Enter 6-digit Verification Code</label>
+          <input
+            id="otpCodeInput"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="one-time-code"
+            placeholder="000000"
+            class="w-full rounded-lg bg-slate-950 border border-accent2/30 px-3 py-2 text-sm tracking-[0.35em] text-center font-mono focus:outline-none focus:ring-2 focus:ring-accent2"
+          />
+          <button
+            id="verifyOtpBtn"
+            type="button"
+            class="w-full rounded-lg bg-accent2 hover:bg-blue-500 text-white py-2 text-sm font-medium"
+          >
+            Verify Code
+          </button>
+          <button
+            id="resendOtpBtn"
+            type="button"
+            class="w-full text-xs text-accent2 hover:text-blue-300 underline underline-offset-2 py-1"
+          >
+            Resend Code
+          </button>
+        </div>
+
         <label class="block text-xs text-slate-400 uppercase tracking-wide">Device Fingerprint</label>
         <input id="deviceFingerprint" type="text" placeholder="stable-device-id" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         <button id="saveIdentityBtn" class="w-full rounded-lg bg-slate-800 hover:bg-slate-700 border border-edge py-2 text-sm">Save Client Identity</button>
@@ -285,11 +317,17 @@
       shareCountToday: 0,
       pricingReason: '',
       sessionMsRemaining: null,
+      otpAutoSendAttempted: false,
     };
 
     const el = {
       apiBase: document.getElementById('apiBase'),
       userEmail: document.getElementById('userEmail'),
+      otpVerificationPanel: document.getElementById('otpVerificationPanel'),
+      otpVerificationMessage: document.getElementById('otpVerificationMessage'),
+      otpCodeInput: document.getElementById('otpCodeInput'),
+      verifyOtpBtn: document.getElementById('verifyOtpBtn'),
+      resendOtpBtn: document.getElementById('resendOtpBtn'),
       deviceFingerprint: document.getElementById('deviceFingerprint'),
       saveIdentityBtn: document.getElementById('saveIdentityBtn'),
       screenTitle: document.getElementById('screenTitle'),
@@ -525,6 +563,95 @@
       return true;
     }
 
+    function isVerificationRequired(response, payload) {
+      return response.status === 403 && payload?.code === 'VERIFICATION_REQUIRED';
+    }
+
+    function showOtpVerificationPanel(message) {
+      el.otpVerificationPanel.classList.remove('hidden');
+      el.otpVerificationMessage.textContent =
+        message || 'A verification code has been sent to your email. Enter it below to unlock chat access.';
+      el.otpCodeInput.focus();
+    }
+
+    function hideOtpVerificationPanel() {
+      el.otpVerificationPanel.classList.add('hidden');
+      el.otpCodeInput.value = '';
+    }
+
+    async function sendOtpCode(options) {
+      const silent = options && options.silent;
+      try {
+        const { response, payload } = await apiRequest('/api/send-otp', {
+          method: 'POST',
+          headers: getClientHeaders(),
+          body: JSON.stringify({}),
+        });
+
+        if (!response.ok) {
+          if (!silent) {
+            showToast(payload.message || 'Failed to send verification code.', 'error');
+          }
+          return false;
+        }
+
+        if (!silent) {
+          showToast(payload.message || 'Verification code sent to your email.', 'success');
+        }
+        return true;
+      } catch (error) {
+        if (!silent) {
+          showToast(error.message || 'Failed to send verification code.', 'error');
+        }
+        return false;
+      }
+    }
+
+    async function verifyOtpCode() {
+      const code = el.otpCodeInput.value.trim();
+      if (!/^\d{6}$/.test(code)) {
+        showToast('Enter a valid 6-digit verification code.', 'warn');
+        return;
+      }
+
+      el.verifyOtpBtn.disabled = true;
+      try {
+        const { response, payload } = await apiRequest('/api/verify-otp', {
+          method: 'POST',
+          headers: getClientHeaders(),
+          body: JSON.stringify({ otp: code }),
+        });
+
+        if (!response.ok) {
+          showToast(payload.message || 'Verification failed. Check your code and try again.', 'error');
+          return;
+        }
+
+        hideOtpVerificationPanel();
+        state.otpAutoSendAttempted = false;
+        showToast(payload.message || 'Email verified successfully.', 'success');
+        await loadSessionTrialState();
+      } catch (error) {
+        showToast(error.message || 'Verification request failed.', 'error');
+      } finally {
+        el.verifyOtpBtn.disabled = false;
+      }
+    }
+
+    async function handleVerificationRequired(response, payload) {
+      if (!isVerificationRequired(response, payload)) return false;
+
+      showOtpVerificationPanel(payload.message);
+      showToast(payload.message || 'Email verification required.', 'warn');
+
+      if (!state.otpAutoSendAttempted) {
+        state.otpAutoSendAttempted = true;
+        await sendOtpCode({ silent: true });
+      }
+
+      return true;
+    }
+
     function generateShareBatchHash() {
       const bytes = new Uint8Array(32);
       crypto.getRandomValues(bytes);
@@ -646,6 +773,11 @@
           }
 
           streamNode.wrapper.remove();
+
+          if (await handleVerificationRequired(response, payload)) {
+            appendChatMessage('assistant', payload.message || 'Email verification required before chat access.', ['Verification Required']);
+            return;
+          }
 
           if (handlePaywallRedirect(response, payload)) {
             appendChatMessage('assistant', payload.message || 'Trial or credit limits reached.', ['Paywall Redirect']);
@@ -808,6 +940,8 @@
 
         if (handlePaywallRedirect(response, payload)) return;
 
+        if (await handleVerificationRequired(response, payload)) return;
+
         if (!response.ok) {
           const errText = payload.message || `Share tracking failed (${response.status})`;
           showToast(errText, 'error');
@@ -896,6 +1030,7 @@
     function loadPersistedValues() {
       localStorage.removeItem(STORAGE_KEYS.apiBase);
       el.apiBase.value = getApiBase();
+      el.userEmail.value = REGISTERED_EMAIL;
       el.userEmail.value = localStorage.getItem(STORAGE_KEYS.email) || '';
       el.deviceFingerprint.value = ensureDeviceFingerprint();
       el.adminKey.value = localStorage.getItem(STORAGE_KEYS.adminKey) || '';
@@ -914,6 +1049,14 @@
       });
 
       el.saveIdentityBtn.addEventListener('click', saveIdentity);
+      el.verifyOtpBtn.addEventListener('click', verifyOtpCode);
+      el.resendOtpBtn.addEventListener('click', () => sendOtpCode());
+      el.otpCodeInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          verifyOtpCode();
+        }
+      });
       el.sendChatBtn.addEventListener('click', sendChatPrompt);
       el.chatInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
@@ -984,8 +1127,14 @@
           headers: getClientHeaders(),
         });
 
-        if (!response.ok) return;
+        if (!response.ok) {
+          if (await handleVerificationRequired(response, payload)) return;
 
+          state.sessionMsRemaining = null;
+          return;
+        }
+
+        hideOtpVerificationPanel();
         state.sessionMsRemaining = payload.msRemaining;
         if (typeof payload.creditsUsed === 'number' && typeof payload.creditLimit === 'number') {
           el.creditHint.textContent = `${payload.creditsUsed}/${payload.creditLimit} used today`;
