@@ -359,6 +359,17 @@ function getAdminKey(req) {
   return (req.headers['x-master-admin-key'] || req.headers['x-admin-key'] || '').trim();
 }
 
+function isValidMasterOwnerKey(req) {
+  const adminKey = getAdminKey(req);
+  return Boolean(adminKey && MASTER_ADMIN_KEY && adminKey === MASTER_ADMIN_KEY);
+}
+
+function applyMasterOwnerSession(req) {
+  req.role = 'MASTER_OWNER';
+  req.user = null;
+  req.effectiveRole = 'MASTER_OWNER';
+}
+
 function getClientIdentity(req) {
   const body = req.body || {};
   return {
@@ -1218,19 +1229,20 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
 // ---------------------------------------------------------------------------
 
 function authMiddleware(req, res, next) {
-  const adminKey = getAdminKey(req);
-  if (adminKey && MASTER_ADMIN_KEY && adminKey === MASTER_ADMIN_KEY) {
-    req.role = 'MASTER_OWNER';
-    req.user = null;
-    // God Mode: bypass all client email / Supabase / Redis SaaS gates downstream.
+  if (isValidMasterOwnerKey(req)) {
+    applyMasterOwnerSession(req);
     return next();
   }
   req.role = 'CLIENT';
   next();
 }
 
-function bypassClientGateForMasterOwner(req, res, next) {
-  if (req.role === 'MASTER_OWNER') return next();
+function chatRouteGate(req, res, next) {
+  if (isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER') {
+    applyMasterOwnerSession(req);
+    console.log('[god-chat] MASTER_OWNER gate — skipping clientRules and users table.');
+    return next();
+  }
   return enforceClientRules(req, res, next);
 }
 
@@ -1566,7 +1578,7 @@ app.get('/api/user/session', authMiddleware, enforceClientRules, async (req, res
   });
 });
 
-app.post('/api/chat', authMiddleware, bypassClientGateForMasterOwner, async (req, res) => {
+app.post('/api/chat', authMiddleware, chatRouteGate, async (req, res) => {
   try {
     const { prompt, adminDeepScrape } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -1575,7 +1587,9 @@ app.post('/api/chat', authMiddleware, bypassClientGateForMasterOwner, async (req
 
     let finalPrompt = prompt.trim();
 
-    if (req.role === 'MASTER_OWNER') {
+    // MASTER_OWNER: no clientRules, no users.is_email_verified, no Supabase user lookups.
+    if (isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER') {
+      applyMasterOwnerSession(req);
       const isAdminDeepScrape = adminDeepScrape === true || adminDeepScrape === 'true';
 
       if (isAdminDeepScrape) {
