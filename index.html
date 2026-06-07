@@ -26,9 +26,19 @@
     html, body { height: 100%; }
     .screen { display: none; }
     .screen.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-    .chat-scroll { scrollbar-width: thin; scrollbar-color: #374151 transparent; }
-    .chat-scroll::-webkit-scrollbar { width: 8px; }
-    .chat-scroll::-webkit-scrollbar-thumb { background: #374151; border-radius: 8px; }
+    .chat-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: #4b5563 #0f172a;
+      scroll-behavior: smooth;
+    }
+    .chat-scroll::-webkit-scrollbar { width: 10px; }
+    .chat-scroll::-webkit-scrollbar-track { background: #0f172a; border-radius: 10px; }
+    .chat-scroll::-webkit-scrollbar-thumb {
+      background: linear-gradient(180deg, #4b5563, #374151);
+      border-radius: 10px;
+      border: 2px solid #0f172a;
+    }
+    .chat-scroll::-webkit-scrollbar-thumb:hover { background: #6b7280; }
     .console-scroll { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .god-scrape-glow { box-shadow: 0 0 24px rgba(59, 130, 246, 0.25), inset 0 0 0 1px rgba(96, 165, 250, 0.35); }
     .truncation-badge {
@@ -286,7 +296,7 @@
               </div>
               <div
                 id="godDirectChatHistory"
-                class="chat-scroll min-h-[180px] max-h-[280px] overflow-y-auto rounded-xl bg-slate-950 border border-edge p-4 space-y-3 text-sm"
+                class="chat-scroll min-h-[500px] max-h-[75vh] overflow-y-auto overflow-x-hidden rounded-xl bg-slate-950/90 border border-edge p-5 space-y-4 text-sm leading-relaxed shadow-inner"
               ></div>
               <div class="flex flex-col sm:flex-row gap-3">
                 <input
@@ -925,43 +935,53 @@
           let buffer = '';
           let fullText = '';
 
+          const ingestSseFrames = (frames) => {
+            for (const frame of frames) {
+              if (!frame.trim()) continue;
+              const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
+              for (const line of frameLines) {
+                const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
+                if (!payloadRaw || payloadRaw === '[DONE]') continue;
+
+                let payload;
+                try {
+                  payload = JSON.parse(payloadRaw);
+                } catch {
+                  continue;
+                }
+
+                if (payload.error) {
+                  throw new Error(payload.message || 'SSE stream reported an error.');
+                }
+
+                if (payload.type === 'meta') continue;
+
+                if (payload.content && payload.content !== TRUNCATION_BADGE && !payload.truncated) {
+                  const chunk = payload.content.includes(TRUNCATION_BADGE)
+                    ? payload.content.replace(TRUNCATION_BADGE, '')
+                    : payload.content;
+                  fullText += chunk;
+                  assistantNode.body.textContent = fullText;
+                  el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
+                }
+              }
+            }
+          };
+
           while (true) {
             const { value, done } = await reader.read();
-            if (done) break;
-
-            buffer += decoder.decode(value, { stream: true });
-            const frames = buffer.split('\n\n');
-            buffer = frames.pop() || '';
-
-            for (const frame of frames) {
-              const dataLine = frame
-                .split('\n')
-                .map((line) => line.trim())
-                .find((line) => line.startsWith('data:'));
-
-              if (!dataLine) continue;
-              const payloadRaw = dataLine.replace(/^data:\s*/, '');
-              if (payloadRaw === '[DONE]') continue;
-
-              let payload;
-              try {
-                payload = JSON.parse(payloadRaw);
-              } catch {
-                continue;
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              const frames = buffer.split('\n\n');
+              buffer = frames.pop() || '';
+              ingestSseFrames(frames);
+            }
+            if (done) {
+              buffer += decoder.decode(undefined, { stream: false });
+              if (buffer.trim()) {
+                ingestSseFrames([buffer]);
               }
-
-              if (payload.error) {
-                throw new Error(payload.message || 'SSE stream reported an error.');
-              }
-
-              if (payload.content && payload.content !== TRUNCATION_BADGE && !payload.truncated) {
-                const chunk = payload.content.includes(TRUNCATION_BADGE)
-                  ? payload.content.replace(TRUNCATION_BADGE, '')
-                  : payload.content;
-                fullText += chunk;
-                assistantNode.body.textContent = fullText;
-                el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
-              }
+              break;
             }
           }
 
