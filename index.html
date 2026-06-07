@@ -832,7 +832,7 @@
       logAdminConsole('DEEP-SCRAPE REQUEST', { query, adminDeepScrape: true, stream: true });
 
       try {
-        const response = await fetch(`${getApiBase()}/api/chat`, {
+        const response = await fetch(`${getApiBase()}/api/deep-scrape`, {
           method: 'POST',
           headers: {
             ...getAdminHeaders(),
