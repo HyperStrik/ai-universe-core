@@ -757,6 +757,55 @@ function buildAiHeaders() {
   return headers;
 }
 
+function shouldUseRunPodOpenAiRouting(options = {}) {
+  return options.useRunPodOpenAiRouting === true && Boolean(NVIDIA_POD_URL);
+}
+
+function resolveRunPodOpenAiChatUrl() {
+  const normalized = NVIDIA_POD_URL.replace(/\/$/, '');
+  if (/\/openai\/v1\/chat\/completions$/i.test(normalized)) {
+    return normalized;
+  }
+  if (/\/v1\/chat\/completions$/i.test(normalized)) {
+    if (/api\.runpod\.ai/i.test(normalized)) {
+      return normalized.replace(/\/v1\/chat\/completions$/i, '/openai/v1/chat/completions');
+    }
+    return normalized;
+  }
+  if (/api\.runpod\.ai\/v2\//i.test(normalized)) {
+    return `${normalized}/openai/v1/chat/completions`;
+  }
+  return `${normalized}/openai/v1/chat/completions`;
+}
+
+function buildRunPodOpenAiHeaders() {
+  const headers = {
+    'Content-Type': 'application/json',
+    Accept: 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    Connection: 'keep-alive',
+  };
+  if (NVIDIA_API_KEY) {
+    headers.Authorization = `Bearer ${NVIDIA_API_KEY}`;
+  }
+  return headers;
+}
+
+function buildRunPodOpenAiPayload(prompt, options = {}) {
+  const { uncensored = false, webContext = null, mode = 'standard' } = options;
+  const messages = buildAiMessages(prompt, { uncensored, webContext, mode });
+
+  return {
+    model: resolveAiModel(uncensored) || NVIDIA_SERVERLESS_MODEL,
+    messages,
+    temperature: AI_TEMPERATURE,
+    stream: true,
+    stream_options: {
+      include_usage: false,
+    },
+  };
+}
+
 function extractSearchQuery(prompt) {
   return prompt.trim().replace(/\s+/g, ' ').slice(0, 220);
 }
@@ -1090,25 +1139,33 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     meta = {},
   } = options;
 
-  const chatUrl = resolveAiChatUrl();
+  const useRunPodOpenAi = shouldUseRunPodOpenAiRouting(options);
+  const chatUrl = useRunPodOpenAi ? resolveRunPodOpenAiChatUrl() : resolveAiChatUrl();
   const model = resolveAiModel(uncensored);
-  const routingLabel = isNvidiaServerlessMode() ? 'NVIDIA_SERVERLESS' : 'OLLAMA_TUNNEL';
+  const routingLabel = useRunPodOpenAi
+    ? 'RUNPOD_OPENAI_SERVERLESS'
+    : isNvidiaServerlessMode()
+      ? 'NVIDIA_SERVERLESS'
+      : 'OLLAMA_TUNNEL';
+  const requestPayload = useRunPodOpenAi
+    ? buildRunPodOpenAiPayload(prompt, { uncensored, webContext, mode })
+    : buildAiPayload(prompt, { uncensored, stream: true, webContext, mode });
+  const requestHeaders = useRunPodOpenAi ? buildRunPodOpenAiHeaders() : buildAiHeaders();
 
-  console.log('Calling Ollama at:', chatUrl);
+  console.log(useRunPodOpenAi ? 'Calling RunPod OpenAI at:' : 'Calling Ollama at:', chatUrl);
   console.log(`[ai-stream] Provider: ${routingLabel}, model: ${model}, mode: ${mode}`);
+  if (useRunPodOpenAi) {
+    console.log('[ai-stream] RunPod OpenAI serverless payload routing enabled for MASTER_OWNER.');
+  }
 
   let upstream;
   try {
-    upstream = await axios.post(
-      chatUrl,
-      buildAiPayload(prompt, { uncensored, stream: true, webContext, mode }),
-      {
-        headers: buildAiHeaders(),
-        responseType: 'stream',
-        timeout: 0,
-        validateStatus: (status) => status < 500,
-      }
-    );
+    upstream = await axios.post(chatUrl, requestPayload, {
+      headers: requestHeaders,
+      responseType: 'stream',
+      timeout: 0,
+      validateStatus: (status) => status < 500,
+    });
   } catch (err) {
     console.error('[ai-stream] Ollama fetch request failed:', {
       url: chatUrl,
@@ -1146,7 +1203,11 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     role: meta.role || 'CLIENT',
     model,
     streaming: true,
-    routing_mode: isNvidiaServerlessMode() ? 'SERVERLESS_NVIDIA' : 'OLLAMA_TUNNEL',
+    routing_mode: useRunPodOpenAi
+      ? 'RUNPOD_OPENAI_SERVERLESS'
+      : isNvidiaServerlessMode()
+        ? 'SERVERLESS_NVIDIA'
+        : 'OLLAMA_TUNNEL',
     trialEndingSoon: meta.trialIntercept?.trialEndingSoon || false,
     timeLeftStr: meta.trialIntercept?.timeLeftStr || '',
     msRemaining: meta.trialIntercept?.msRemaining ?? null,
@@ -1659,6 +1720,7 @@ app.post('/api/chat', authMiddleware, chatRouteGate, async (req, res) => {
           webContext: deepContext,
           mode: 'admin-deep',
           applyWordLimit: false,
+          useRunPodOpenAiRouting: true,
           meta: {
             role: 'MASTER_OWNER',
             responseMode: 'admin_deep_scrape',
@@ -1674,6 +1736,7 @@ app.post('/api/chat', authMiddleware, chatRouteGate, async (req, res) => {
         webContext: null,
         mode: 'master-owner-direct',
         applyWordLimit: false,
+        useRunPodOpenAiRouting: true,
         meta: {
           role: 'MASTER_OWNER',
           responseMode: 'master_owner_direct',
@@ -1742,6 +1805,7 @@ async function deepScrapeRouteHandler(req, res) {
       webContext: deepContext,
       mode: 'admin-deep',
       applyWordLimit: false,
+      useRunPodOpenAiRouting: true,
       meta: {
         role: 'MASTER_OWNER',
         responseMode: 'admin_deep_scrape',
