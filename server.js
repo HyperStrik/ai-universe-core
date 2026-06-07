@@ -1092,13 +1092,33 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
 
   const chatUrl = resolveAiChatUrl();
   const model = resolveAiModel(uncensored);
+  const routingLabel = isNvidiaServerlessMode() ? 'NVIDIA_SERVERLESS' : 'OLLAMA_TUNNEL';
 
-  const upstream = await axios.post(chatUrl, buildAiPayload(prompt, { uncensored, stream: true, webContext, mode }), {
-    headers: buildAiHeaders(),
-    responseType: 'stream',
-    timeout: 0,
-    validateStatus: (status) => status < 500,
-  });
+  console.log('Calling Ollama at:', chatUrl);
+  console.log(`[ai-stream] Provider: ${routingLabel}, model: ${model}, mode: ${mode}`);
+
+  let upstream;
+  try {
+    upstream = await axios.post(
+      chatUrl,
+      buildAiPayload(prompt, { uncensored, stream: true, webContext, mode }),
+      {
+        headers: buildAiHeaders(),
+        responseType: 'stream',
+        timeout: 0,
+        validateStatus: (status) => status < 500,
+      }
+    );
+  } catch (err) {
+    console.error('[ai-stream] Ollama fetch request failed:', {
+      url: chatUrl,
+      message: err.message,
+      code: err.code || null,
+      status: err.response?.status || null,
+      statusText: err.response?.statusText || null,
+    });
+    throw err;
+  }
 
   if (upstream.status >= 400) {
     const detail = await new Promise((resolve) => {
@@ -1108,6 +1128,12 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       });
       upstream.data.on('end', () => resolve(text));
       upstream.data.on('error', () => resolve(text));
+    });
+    console.error('[ai-stream] Ollama returned error status:', {
+      url: chatUrl,
+      status: upstream.status,
+      statusText: upstream.statusText || null,
+      body: (detail || '').slice(0, 500) || '(empty response body)',
     });
     throw new Error(`AI provider error (${upstream.status}): ${detail || upstream.statusText}`);
   }
@@ -1140,6 +1166,7 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
 
   return new Promise((resolve, reject) => {
     let buffer = '';
+    let rawBytesReceived = 0;
 
     const finalize = (result) => {
       if (streamState.finished) return;
@@ -1177,7 +1204,22 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     upstream.data.on('data', (chunk) => {
       if (streamState.finished) return;
 
-      buffer += chunk.toString('utf8');
+      if (!chunk || chunk.length === 0) {
+        console.error('[ai-stream] Received empty chunk from Ollama stream.', { url: chatUrl });
+        return;
+      }
+
+      rawBytesReceived += chunk.length;
+      const chunkText = chunk.toString('utf8');
+      if (!chunkText.trim()) {
+        console.error('[ai-stream] Received whitespace-only chunk from Ollama stream.', {
+          url: chatUrl,
+          byteLength: chunk.length,
+        });
+        return;
+      }
+
+      buffer += chunkText;
       const lines = buffer.split('\n');
       buffer = lines.pop() || '';
 
@@ -1211,9 +1253,24 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
           }
         }
       }
+
+      if (!streamState.emittedText.trim()) {
+        console.error('[ai-stream] Ollama stream ended with no text content emitted.', {
+          url: chatUrl,
+          status: upstream.status,
+          rawBytesReceived,
+          trailingBufferPreview: buffer.slice(0, 300) || '(empty)',
+        });
+      }
+
       finalize({ completed: true });
     });
     upstream.data.on('error', (err) => {
+      console.error('[ai-stream] Ollama stream transport error:', {
+        url: chatUrl,
+        message: err.message,
+        code: err.code || null,
+      });
       if (!res.headersSent) {
         reject(err);
         return;
