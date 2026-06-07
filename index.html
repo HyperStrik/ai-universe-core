@@ -269,10 +269,40 @@
             </div>
           </div>
 
-          <div class="flex-1 min-h-0 px-6 pb-6 flex flex-col">
+          <div class="flex-1 min-h-0 px-6 pb-4 flex flex-col">
             <div class="rounded-2xl border border-edge bg-black/40 flex-1 min-h-0 flex flex-col">
               <div class="px-4 py-2 border-b border-edge text-xs uppercase tracking-wide text-slate-400">Admin Console Stream</div>
               <pre id="adminConsole" class="console-scroll flex-1 overflow-y-auto p-4 text-xs text-emerald-300 whitespace-pre-wrap"></pre>
+            </div>
+          </div>
+
+          <div class="px-6 pb-6">
+            <div class="rounded-2xl border border-accent2/30 bg-panel p-5 space-y-4 shadow-lg shadow-accent2/5">
+              <div>
+                <h3 class="font-semibold text-lg text-accent2">God Mode Direct AI Chat</h3>
+                <p class="text-sm text-slate-400 mt-1">
+                  Direct uncensored Dolphin/Ollama dialogue via MASTER_OWNER <code class="text-xs text-slate-300">/api/chat</code>.
+                </p>
+              </div>
+              <div
+                id="godDirectChatHistory"
+                class="chat-scroll min-h-[180px] max-h-[280px] overflow-y-auto rounded-xl bg-slate-950 border border-edge p-4 space-y-3 text-sm"
+              ></div>
+              <div class="flex flex-col sm:flex-row gap-3">
+                <input
+                  id="godDirectChatInput"
+                  type="text"
+                  placeholder="Ask Dolphin anything directly..."
+                  class="flex-1 rounded-xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent2"
+                />
+                <button
+                  id="godDirectChatSendBtn"
+                  type="button"
+                  class="rounded-xl bg-accent2 hover:bg-blue-500 text-white font-semibold px-6 py-3 shrink-0"
+                >
+                  Send
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -357,6 +387,9 @@
       dryRun: document.getElementById('dryRun'),
       triggerOutreachBtn: document.getElementById('triggerOutreachBtn'),
       adminConsole: document.getElementById('adminConsole'),
+      godDirectChatHistory: document.getElementById('godDirectChatHistory'),
+      godDirectChatInput: document.getElementById('godDirectChatInput'),
+      godDirectChatSendBtn: document.getElementById('godDirectChatSendBtn'),
       toastHost: document.getElementById('toastHost'),
     };
 
@@ -816,6 +849,140 @@
       }
     }
 
+    function appendGodDirectChatEntry(role, content) {
+      const row = document.createElement('div');
+      row.className = role === 'user' ? 'text-right' : 'text-left';
+
+      const bubble = document.createElement('div');
+      bubble.className = role === 'user'
+        ? 'inline-block max-w-[95%] rounded-xl rounded-tr-sm bg-accent2/20 border border-accent2/30 px-3 py-2 text-slate-100'
+        : 'inline-block max-w-[95%] rounded-xl rounded-tl-sm bg-slate-900 border border-edge px-3 py-2 text-slate-200';
+
+      const label = document.createElement('p');
+      label.className = 'text-[10px] uppercase tracking-wider mb-1 text-slate-500';
+      label.textContent = role === 'user' ? 'You' : 'Dolphin AI';
+
+      const body = document.createElement('p');
+      body.className = 'whitespace-pre-wrap leading-relaxed';
+      body.textContent = content || '';
+
+      bubble.appendChild(label);
+      bubble.appendChild(body);
+      row.appendChild(bubble);
+      el.godDirectChatHistory.appendChild(row);
+      el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
+      return { row, bubble, body };
+    }
+
+    async function sendGodDirectChat() {
+      if (!state.adminUnlocked) {
+        showToast('Unlock God Mode with a valid admin key first.', 'warn');
+        return;
+      }
+
+      const prompt = el.godDirectChatInput.value.trim();
+      if (!prompt) {
+        showToast('Enter a prompt for God Mode Direct AI Chat.', 'warn');
+        return;
+      }
+
+      appendGodDirectChatEntry('user', prompt);
+      el.godDirectChatInput.value = '';
+      el.godDirectChatSendBtn.disabled = true;
+
+      const assistantNode = appendGodDirectChatEntry('assistant', '');
+
+      try {
+        const response = await fetch(`${getApiBase()}/api/chat`, {
+          method: 'POST',
+          headers: {
+            ...getAdminHeaders(),
+            Accept: 'text/event-stream',
+          },
+          body: JSON.stringify(withRegisteredEmail({
+            prompt,
+            stream: true,
+          })),
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+
+        if (!response.ok && !contentType.includes('text/event-stream')) {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch {
+            payload = { message: `God Mode chat failed (${response.status})` };
+          }
+          assistantNode.body.textContent = payload.message || `Error ${response.status}`;
+          showToast(payload.message || 'God Mode chat failed.', 'error');
+          return;
+        }
+
+        if (contentType.includes('text/event-stream') && response.body) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let fullText = '';
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split('\n\n');
+            buffer = frames.pop() || '';
+
+            for (const frame of frames) {
+              const dataLine = frame
+                .split('\n')
+                .map((line) => line.trim())
+                .find((line) => line.startsWith('data:'));
+
+              if (!dataLine) continue;
+              const payloadRaw = dataLine.replace(/^data:\s*/, '');
+              if (payloadRaw === '[DONE]') continue;
+
+              let payload;
+              try {
+                payload = JSON.parse(payloadRaw);
+              } catch {
+                continue;
+              }
+
+              if (payload.error) {
+                throw new Error(payload.message || 'SSE stream reported an error.');
+              }
+
+              if (payload.content && payload.content !== TRUNCATION_BADGE && !payload.truncated) {
+                const chunk = payload.content.includes(TRUNCATION_BADGE)
+                  ? payload.content.replace(TRUNCATION_BADGE, '')
+                  : payload.content;
+                fullText += chunk;
+                assistantNode.body.textContent = fullText;
+                el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
+              }
+            }
+          }
+
+          if (!fullText.trim()) {
+            assistantNode.body.textContent = 'No response content returned from model.';
+          }
+        } else {
+          const payload = await response.json();
+          assistantNode.body.textContent =
+            payload.output || payload.message || JSON.stringify(payload, null, 2);
+        }
+
+        showToast('God Mode direct chat completed.', 'success');
+      } catch (error) {
+        assistantNode.body.textContent = error.message || 'Network failure during God Mode chat.';
+        showToast(error.message || 'God Mode chat failed.', 'error');
+      } finally {
+        el.godDirectChatSendBtn.disabled = false;
+      }
+    }
+
     async function runDeepScrapeSearch() {
       if (!state.adminUnlocked) {
         showToast('Unlock God Mode with a valid admin key first.', 'warn');
@@ -1074,6 +1241,13 @@
         }
       });
       el.unlockGodModeBtn.addEventListener('click', unlockGodMode);
+      el.godDirectChatSendBtn.addEventListener('click', sendGodDirectChat);
+      el.godDirectChatInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          sendGodDirectChat();
+        }
+      });
 
       el.scrapeTelegramBtn.addEventListener('click', () => {
         const targetGroupId = el.targetGroupId.value.trim();
