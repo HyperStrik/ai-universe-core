@@ -50,7 +50,9 @@ const SUPABASE_ANON_KEY = stripQuotes(process.env.SUPABASE_ANON_KEY);
 const REDIS_URL = stripQuotes(process.env.REDIS_URL);
 const AI_ROUTING_MODE = stripQuotes(process.env.AI_ROUTING_MODE || '').toUpperCase();
 const NVIDIA_POD_URL = stripQuotes(process.env.NVIDIA_POD_URL);
+const RUNPOD_AI_URL = stripQuotes(process.env.RUNPOD_AI_URL);
 const OLLAMA_TUNNEL_URL = stripQuotes(process.env.OLLAMA_TUNNEL_URL) || DEFAULT_OLLAMA_TUNNEL_URL;
+const RUNPOD_API_KEY = stripQuotes(process.env.RUNPOD_API_KEY);
 const NVIDIA_API_KEY = stripQuotes(process.env.NVIDIA_API_KEY || process.env.RUNPOD_API_KEY);
 
 const USER_COLUMNS =
@@ -368,6 +370,18 @@ function applyMasterOwnerSession(req) {
   req.role = 'MASTER_OWNER';
   req.user = null;
   req.effectiveRole = 'MASTER_OWNER';
+}
+
+function isMasterOwnerChatRequest(req) {
+  return isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER';
+}
+
+function getRunPodEndpointUrl() {
+  return NVIDIA_POD_URL || RUNPOD_AI_URL || '';
+}
+
+function getRunPodAuthKey() {
+  return RUNPOD_API_KEY || NVIDIA_API_KEY || '';
 }
 
 function getClientIdentity(req) {
@@ -758,21 +772,22 @@ function buildAiHeaders() {
 }
 
 function shouldUseRunPodOpenAiRouting(options = {}) {
-  return options.useRunPodOpenAiRouting === true && Boolean(NVIDIA_POD_URL);
+  return options.useRunPodOpenAiRouting === true && Boolean(getRunPodEndpointUrl());
 }
 
 function resolveRunPodOpenAiChatUrl() {
-  const normalized = NVIDIA_POD_URL.replace(/\/$/, '');
+  const endpointBase = getRunPodEndpointUrl();
+  const normalized = endpointBase.replace(/\/$/, '');
   if (/\/openai\/v1\/chat\/completions$/i.test(normalized)) {
     return normalized;
   }
   if (/\/v1\/chat\/completions$/i.test(normalized)) {
-    if (/api\.runpod\.ai/i.test(normalized)) {
+    if (/runpod\.ai/i.test(normalized)) {
       return normalized.replace(/\/v1\/chat\/completions$/i, '/openai/v1/chat/completions');
     }
     return normalized;
   }
-  if (/api\.runpod\.ai\/v2\//i.test(normalized)) {
+  if (/runpod\.ai\/v2\//i.test(normalized)) {
     return `${normalized}/openai/v1/chat/completions`;
   }
   return `${normalized}/openai/v1/chat/completions`;
@@ -785,8 +800,9 @@ function buildRunPodOpenAiHeaders() {
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   };
-  if (NVIDIA_API_KEY) {
-    headers.Authorization = `Bearer ${NVIDIA_API_KEY}`;
+  const runPodKey = getRunPodAuthKey();
+  if (runPodKey) {
+    headers.Authorization = `Bearer ${runPodKey}`;
   }
   return headers;
 }
@@ -1355,17 +1371,33 @@ function authMiddleware(req, res, next) {
   next();
 }
 
-function chatRouteGate(req, res, next) {
-  if (isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER') {
+async function enforceClientRulesAsync(req, res) {
+  if (isMasterOwnerChatRequest(req)) {
     applyMasterOwnerSession(req);
-    console.log('[god-chat] MASTER_OWNER gate — skipping clientRules and users table.');
-    return next();
+    return;
   }
-  return enforceClientRules(req, res, next);
+
+  await new Promise((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (!settled) {
+        settled = true;
+        resolve();
+      }
+    };
+
+    enforceClientRules(req, res, finish);
+    queueMicrotask(() => {
+      if (!settled && res.headersSent) finish();
+    });
+  });
 }
 
 async function enforceClientRules(req, res, next) {
-  if (req.role === 'MASTER_OWNER') return next();
+  if (isMasterOwnerChatRequest(req)) {
+    applyMasterOwnerSession(req);
+    return next();
+  }
 
   const dbHealthy = await verifyDatabaseHealth('client-gate');
   if (!dbHealthy) {
@@ -1464,6 +1496,45 @@ async function enforceClientRules(req, res, next) {
     }
     sendError(res, 500, 'CLIENT_GATE_FAILED', 'Failed to validate client access.');
   }
+}
+
+async function executeMasterOwnerChat(res, finalPrompt, { adminDeepScrape = false } = {}) {
+  const isAdminDeepScrape = adminDeepScrape === true || adminDeepScrape === 'true';
+  const masterStreamOptions = {
+    uncensored: true,
+    applyWordLimit: false,
+    useRunPodOpenAiRouting: true,
+  };
+
+  if (isAdminDeepScrape) {
+    console.log('[god-scrape] Deep-Scrape God Engine activated.');
+    const deepContext = await fetchAdminDeepScrapeContext(finalPrompt);
+    console.log(`[god-scrape] Injected ${deepContext.length} characters of deep context.`);
+
+    await streamAiCompletionToClient(res, finalPrompt, {
+      ...masterStreamOptions,
+      webContext: deepContext,
+      mode: 'admin-deep',
+      meta: {
+        role: 'MASTER_OWNER',
+        responseMode: 'admin_deep_scrape',
+        creditsBypassed: true,
+      },
+    });
+    return;
+  }
+
+  console.log('[god-chat] MASTER_OWNER direct stream — database bypass + RunPod OpenAI routing.');
+  await streamAiCompletionToClient(res, finalPrompt, {
+    ...masterStreamOptions,
+    webContext: null,
+    mode: 'master-owner-direct',
+    meta: {
+      role: 'MASTER_OWNER',
+      responseMode: 'master_owner_direct',
+      creditsBypassed: true,
+    },
+  });
 }
 
 async function processViralShare(req, shareBatchHash) {
@@ -1696,7 +1767,7 @@ app.get('/api/user/session', authMiddleware, enforceClientRules, async (req, res
   });
 });
 
-app.post('/api/chat', authMiddleware, chatRouteGate, async (req, res) => {
+app.post('/api/chat', authMiddleware, async (req, res) => {
   try {
     const { prompt, adminDeepScrape } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -1705,46 +1776,16 @@ app.post('/api/chat', authMiddleware, chatRouteGate, async (req, res) => {
 
     let finalPrompt = prompt.trim();
 
-    // MASTER_OWNER: no clientRules, no users.is_email_verified, no Supabase user lookups.
-    if (isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER') {
+    // MASTER_OWNER fast-path: never invoke clientRules or users-table validation.
+    if (isMasterOwnerChatRequest(req)) {
       applyMasterOwnerSession(req);
-      const isAdminDeepScrape = adminDeepScrape === true || adminDeepScrape === 'true';
-
-      if (isAdminDeepScrape) {
-        console.log('[god-scrape] Deep-Scrape God Engine activated.');
-        const deepContext = await fetchAdminDeepScrapeContext(finalPrompt);
-        console.log(`[god-scrape] Injected ${deepContext.length} characters of deep context.`);
-
-        await streamAiCompletionToClient(res, finalPrompt, {
-          uncensored: true,
-          webContext: deepContext,
-          mode: 'admin-deep',
-          applyWordLimit: false,
-          useRunPodOpenAiRouting: true,
-          meta: {
-            role: 'MASTER_OWNER',
-            responseMode: 'admin_deep_scrape',
-            creditsBypassed: true,
-          },
-        });
-        return;
-      }
-
-      console.log('[god-chat] MASTER_OWNER direct stream — OTP/client SaaS gates bypassed.');
-      await streamAiCompletionToClient(res, finalPrompt, {
-        uncensored: true,
-        webContext: null,
-        mode: 'master-owner-direct',
-        applyWordLimit: false,
-        useRunPodOpenAiRouting: true,
-        meta: {
-          role: 'MASTER_OWNER',
-          responseMode: 'master_owner_direct',
-          creditsBypassed: true,
-        },
-      });
+      console.log('[god-chat] MASTER_OWNER gate — skipping clientRules and users table.');
+      await executeMasterOwnerChat(res, finalPrompt, { adminDeepScrape });
       return;
     }
+
+    await enforceClientRulesAsync(req, res);
+    if (res.headersSent) return;
 
     const webContext = await fetchWebSearchSnippets(finalPrompt);
     const scopeViolation = detectScopeViolation(finalPrompt, req.user.allowed_info_scope);
@@ -1797,21 +1838,7 @@ async function deepScrapeRouteHandler(req, res) {
     }
 
     console.log('[god-scrape] Deep-Scrape God Engine activated via dedicated endpoint.');
-    const deepContext = await fetchAdminDeepScrapeContext(finalPrompt);
-    console.log(`[god-scrape] Injected ${deepContext.length} characters of deep context.`);
-
-    await streamAiCompletionToClient(res, finalPrompt, {
-      uncensored: true,
-      webContext: deepContext,
-      mode: 'admin-deep',
-      applyWordLimit: false,
-      useRunPodOpenAiRouting: true,
-      meta: {
-        role: 'MASTER_OWNER',
-        responseMode: 'admin_deep_scrape',
-        creditsBypassed: true,
-      },
-    });
+    await executeMasterOwnerChat(res, finalPrompt, { adminDeepScrape: true });
   } catch (err) {
     console.error('[deep-scrape]', err.message);
     if (!res.headersSent) {
