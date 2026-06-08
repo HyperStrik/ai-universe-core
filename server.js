@@ -1083,22 +1083,75 @@ function writeSseFrame(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
-function extractAiStreamContent(json) {
-  if (!json || typeof json !== 'object') return '';
-  return (
+function tryParseJsonString(value) {
+  if (value == null) return null;
+  if (typeof value === 'object') return value;
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+}
+
+function extractAiStreamContent(json, depth = 0) {
+  if (json == null || depth > 5) return '';
+
+  if (typeof json === 'string') {
+    const parsed = tryParseJsonString(json);
+    if (parsed) return extractAiStreamContent(parsed, depth + 1);
+    return json.trim();
+  }
+
+  if (typeof json !== 'object') return '';
+
+  const direct =
     json.choices?.[0]?.delta?.content ||
     json.choices?.[0]?.message?.content ||
     json.choices?.[0]?.text ||
     json.delta?.content ||
     json.message?.content ||
-    json.content ||
-    json.response ||
-    ''
+    (typeof json.content === 'string' ? json.content : '') ||
+    (typeof json.response === 'string' ? json.response : '') ||
+    (typeof json.text === 'string' ? json.text : '') ||
+    '';
+
+  if (direct) return direct;
+
+  for (const key of ['output', 'openai_output', 'result', 'data', 'body']) {
+    if (json[key] != null) {
+      const nested = extractAiStreamContent(json[key], depth + 1);
+      if (nested) return nested;
+    }
+  }
+
+  if (Array.isArray(json.stream)) {
+    return json.stream.map((item) => extractAiStreamContent(item, depth + 1)).join('');
+  }
+
+  if (Array.isArray(json)) {
+    return json.map((item) => extractAiStreamContent(item, depth + 1)).join('');
+  }
+
+  return '';
+}
+
+function isUpstreamStreamDone(json) {
+  if (!json || typeof json !== 'object') return false;
+  return Boolean(
+    json.done === true ||
+    json.choices?.[0]?.finish_reason ||
+    json.finish_reason ||
+    json.status === 'COMPLETED'
   );
 }
 
 function parseUpstreamStreamPayload(rawLine) {
-  const trimmed = String(rawLine || '').trim();
+  const trimmed = String(rawLine || '')
+    .trim()
+    .replace(/\r$/, '');
   if (!trimmed || trimmed === '[DONE]') {
     return { done: trimmed === '[DONE]', content: '' };
   }
@@ -1108,12 +1161,126 @@ function parseUpstreamStreamPayload(rawLine) {
     return { done: payload === '[DONE]', content: '' };
   }
 
-  try {
-    const json = JSON.parse(payload);
-    return { done: Boolean(json.done), content: extractAiStreamContent(json) };
-  } catch {
+  const json = tryParseJsonString(payload);
+  if (!json) {
     return { done: false, content: '' };
   }
+
+  return {
+    done: isUpstreamStreamDone(json),
+    content: extractAiStreamContent(json),
+  };
+}
+
+function extractJsonObjectsFromText(text) {
+  const results = [];
+  let index = 0;
+
+  while (index < text.length) {
+    while (index < text.length && text[index] !== '{') index += 1;
+    if (index >= text.length) break;
+
+    let depth = 0;
+    const start = index;
+    let closed = false;
+
+    for (; index < text.length; index += 1) {
+      const char = text[index];
+      if (char === '{') depth += 1;
+      else if (char === '}') {
+        depth -= 1;
+        if (depth === 0) {
+          const slice = text.slice(start, index + 1);
+          const parsed = tryParseJsonString(slice);
+          if (parsed) results.push(parsed);
+          index += 1;
+          closed = true;
+          break;
+        }
+      }
+    }
+
+    if (!closed) break;
+  }
+
+  return results;
+}
+
+function ingestUpstreamStreamBuffer(buffer, options = {}) {
+  const events = [];
+  let working = String(buffer || '').replace(/\r\n/g, '\n');
+
+  const pushParsedSegment = (segment) => {
+    const trimmed = String(segment || '').trim();
+    if (!trimmed) return;
+
+    if (trimmed === '[DONE]') {
+      events.push({ done: true, content: '' });
+      return;
+    }
+
+    const parsed = parseUpstreamStreamPayload(trimmed);
+    if (parsed.done) {
+      if (parsed.content) events.push({ done: false, content: parsed.content });
+      events.push({ done: true, content: '' });
+      return;
+    }
+
+    if (parsed.content) {
+      events.push({ done: false, content: parsed.content });
+      return;
+    }
+
+    if (options.useRunPodOpenAi || trimmed.startsWith('{') || trimmed.startsWith('data:')) {
+      const json = tryParseJsonString(trimmed.replace(/^data:\s*/, ''));
+      const salvaged = extractAiStreamContent(json);
+      if (salvaged) {
+        events.push({ done: isUpstreamStreamDone(json), content: salvaged });
+      }
+    }
+  };
+
+  let frameBreak;
+  while ((frameBreak = working.indexOf('\n\n')) !== -1) {
+    const frame = working.slice(0, frameBreak);
+    working = working.slice(frameBreak + 2);
+    for (const line of frame.split('\n')) {
+      pushParsedSegment(line);
+    }
+  }
+
+  let lineBreak;
+  while ((lineBreak = working.indexOf('\n')) !== -1) {
+    const line = working.slice(0, lineBreak);
+    working = working.slice(lineBreak + 1);
+    pushParsedSegment(line);
+  }
+
+  return { remaining: working, events };
+}
+
+function salvageUpstreamStreamBuffer(buffer) {
+  const normalized = String(buffer || '')
+    .replace(/\r\n/g, '\n')
+    .trim();
+  if (!normalized) return '';
+
+  const whole = tryParseJsonString(normalized.replace(/^data:\s*/, ''));
+  if (whole) {
+    const direct = extractAiStreamContent(whole);
+    if (direct) return direct;
+  }
+
+  const ingested = ingestUpstreamStreamBuffer(normalized, { useRunPodOpenAi: true });
+  let combined = ingested.events
+    .filter((event) => event.content)
+    .map((event) => event.content)
+    .join('');
+  if (combined) return combined;
+
+  const objects = extractJsonObjectsFromText(normalized);
+  combined = objects.map((obj) => extractAiStreamContent(obj)).join('');
+  return combined;
 }
 
 function emitWordLimitedContent(res, content, state) {
@@ -1289,6 +1456,25 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       return true;
     };
 
+    const processUpstreamStreamEvents = (events) => {
+      for (const event of events) {
+        if (event.done) {
+          finalize({ completed: true });
+          return false;
+        }
+
+        if (!event.content) continue;
+
+        if (!emitStreamContent(event.content)) {
+          abortUpstream();
+          finalize({ completed: true, truncated: true });
+          return false;
+        }
+      }
+
+      return true;
+    };
+
     const emitEmptyStreamFallback = (reason) => {
       if (streamState.emittedText.trim()) return;
       const fallbackMessage = useRunPodOpenAi
@@ -1309,6 +1495,7 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       if (streamState.finished) return;
 
       if (!chunk || chunk.length === 0) {
+        if (useRunPodOpenAi) return;
         console.error('[ai-stream] Received empty chunk from Ollama stream.', { url: chatUrl });
         return;
       }
@@ -1316,6 +1503,7 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       rawBytesReceived += chunk.length;
       const chunkText = chunk.toString('utf8');
       if (!chunkText.trim()) {
+        if (useRunPodOpenAi) return;
         console.error('[ai-stream] Received whitespace-only chunk from Ollama stream.', {
           url: chatUrl,
           byteLength: chunk.length,
@@ -1324,37 +1512,34 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       }
 
       buffer += chunkText;
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      const ingested = ingestUpstreamStreamBuffer(buffer, { useRunPodOpenAi });
+      buffer = ingested.remaining;
 
-      for (const line of lines) {
-        const parsed = parseUpstreamStreamPayload(line);
-        if (parsed.done) {
-          finalize({ completed: true });
-          return;
-        }
-
-        const content = parsed.content;
-        if (!content) continue;
-
-        if (!emitStreamContent(content)) {
-          abortUpstream();
-          finalize({ completed: true, truncated: true });
-          return;
-        }
+      if (!processUpstreamStreamEvents(ingested.events)) {
+        return;
       }
     });
 
     upstream.data.on('end', () => {
       if (buffer.trim()) {
-        const tailLines = buffer.split('\n');
-        for (const line of tailLines) {
-          const parsed = parseUpstreamStreamPayload(line);
-          if (parsed.done) continue;
-          if (!emitStreamContent(parsed.content)) {
-            abortUpstream();
-            break;
+        const ingested = ingestUpstreamStreamBuffer(buffer, { useRunPodOpenAi });
+        buffer = ingested.remaining;
+        processUpstreamStreamEvents(ingested.events);
+
+        if (!streamState.emittedText.trim() && buffer.trim()) {
+          const salvagedTail = salvageUpstreamStreamBuffer(buffer);
+          if (salvagedTail) {
+            emitStreamContent(salvagedTail);
+            buffer = '';
           }
+        }
+      }
+
+      if (!streamState.emittedText.trim() && rawBytesReceived > 0) {
+        const salvaged = salvageUpstreamStreamBuffer(buffer);
+        if (salvaged) {
+          console.log('[ai-stream] Recovered RunPod/OpenAI completion from buffered wrapper payload.');
+          emitStreamContent(salvaged);
         }
       }
 
@@ -1363,12 +1548,12 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
           url: chatUrl,
           status: upstream.status,
           rawBytesReceived,
-          trailingBufferPreview: buffer.slice(0, 300) || '(empty)',
+          trailingBufferPreview: buffer.slice(0, 500) || '(empty)',
         });
-        emitEmptyStreamFallback('stream_end_zero_bytes');
+        emitEmptyStreamFallback(rawBytesReceived > 0 ? 'stream_end_unparsed_payload' : 'stream_end_zero_bytes');
       }
 
-      finalize({ completed: true, emptyStream: !rawBytesReceived });
+      finalize({ completed: true, emptyStream: !streamState.emittedText.trim() });
     });
     upstream.data.on('error', (err) => {
       console.error('[ai-stream] Ollama stream transport error:', {
