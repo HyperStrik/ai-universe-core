@@ -38,6 +38,7 @@ const DEFAULT_OLLAMA_TUNNEL_URL = 'http://localhost:11434';
 const DEFAULT_LOCAL_MODEL = 'dolphin-llama3';
 const NVIDIA_SERVERLESS_MODEL = 'dolphin-llama3-uncensored';
 const AI_TEMPERATURE = 0.75;
+const RUNPOD_STREAM_REQUEST_TIMEOUT_MS = 120000;
 
 function stripQuotes(value) {
   if (!value) return '';
@@ -1172,14 +1173,17 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
   console.log(`[ai-stream] Provider: ${routingLabel}, model: ${model}, mode: ${mode}`);
   if (useRunPodOpenAi) {
     console.log('[ai-stream] RunPod OpenAI serverless payload routing enabled for MASTER_OWNER.');
+    console.log(`[ai-stream] RunPod cold-start request timeout: ${RUNPOD_STREAM_REQUEST_TIMEOUT_MS}ms`);
   }
+
+  const streamRequestTimeoutMs = useRunPodOpenAi ? RUNPOD_STREAM_REQUEST_TIMEOUT_MS : 0;
 
   let upstream;
   try {
     upstream = await axios.post(chatUrl, requestPayload, {
       headers: requestHeaders,
       responseType: 'stream',
-      timeout: 0,
+      timeout: streamRequestTimeoutMs,
       validateStatus: (status) => status < 500,
     });
   } catch (err) {
@@ -1189,7 +1193,14 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       code: err.code || null,
       status: err.response?.status || null,
       statusText: err.response?.statusText || null,
+      timeoutMs: streamRequestTimeoutMs || null,
     });
+    if (useRunPodOpenAi && (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || ''))) {
+      throw new Error(
+        `RunPod cold start did not respond within ${RUNPOD_STREAM_REQUEST_TIMEOUT_MS / 1000}s. ` +
+          'The serverless worker may still be loading dolphin-llama3 into VRAM — wait 60–90 seconds and retry.'
+      );
+    }
     throw err;
   }
 
@@ -1278,6 +1289,22 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       return true;
     };
 
+    const emitEmptyStreamFallback = (reason) => {
+      if (streamState.emittedText.trim()) return;
+      const fallbackMessage = useRunPodOpenAi
+        ? 'RunPod serverless returned no stream data (cold start may still be in progress). ' +
+          'Wait 60–90 seconds for the worker to load dolphin-llama3, then send your message again.'
+        : 'The model returned an empty response. Please try again.';
+      console.error('[ai-stream] Empty stream fallback emitted.', {
+        url: chatUrl,
+        reason,
+        rawBytesReceived,
+        timeoutMs: streamRequestTimeoutMs || null,
+      });
+      writeSseFrame(res, { content: fallbackMessage, providerEmptyStream: true });
+      streamState.emittedText = fallbackMessage;
+    };
+
     upstream.data.on('data', (chunk) => {
       if (streamState.finished) return;
 
@@ -1338,18 +1365,25 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
           rawBytesReceived,
           trailingBufferPreview: buffer.slice(0, 300) || '(empty)',
         });
+        emitEmptyStreamFallback('stream_end_zero_bytes');
       }
 
-      finalize({ completed: true });
+      finalize({ completed: true, emptyStream: !rawBytesReceived });
     });
     upstream.data.on('error', (err) => {
       console.error('[ai-stream] Ollama stream transport error:', {
         url: chatUrl,
         message: err.message,
         code: err.code || null,
+        rawBytesReceived,
       });
       if (!res.headersSent) {
         reject(err);
+        return;
+      }
+      if (!streamState.emittedText.trim() && rawBytesReceived === 0) {
+        emitEmptyStreamFallback('stream_transport_error');
+        finalize({ completed: false, error: err.message, emptyStream: true });
         return;
       }
       writeSseFrame(res, { error: true, message: err.message || 'Stream interrupted' });
