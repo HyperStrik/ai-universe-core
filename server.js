@@ -797,7 +797,7 @@ function resolveRunPodOpenAiChatUrl() {
 function buildRunPodOpenAiHeaders() {
   const headers = {
     'Content-Type': 'application/json',
-    Accept: 'text/event-stream',
+    Accept: 'application/json',
     'Cache-Control': 'no-cache',
     Connection: 'keep-alive',
   };
@@ -816,10 +816,7 @@ function buildRunPodOpenAiPayload(prompt, options = {}) {
     model: resolveAiModel(uncensored) || NVIDIA_SERVERLESS_MODEL,
     messages,
     temperature: AI_TEMPERATURE,
-    stream: true,
-    stream_options: {
-      include_usage: false,
-    },
+    stream: false,
   };
 }
 
@@ -1083,6 +1080,15 @@ function writeSseFrame(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function extractRunPodJsonCompletion(data) {
+  if (!data || typeof data !== 'object') return '';
+  return (
+    data.choices?.[0]?.message?.content ||
+    extractAiStreamContent(data) ||
+    ''
+  );
+}
+
 function extractAiStreamContent(json) {
   if (!json || typeof json !== 'object') return '';
   return (
@@ -1178,6 +1184,103 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
 
   const streamRequestTimeoutMs = useRunPodOpenAi ? RUNPOD_STREAM_REQUEST_TIMEOUT_MS : 0;
 
+  if (useRunPodOpenAi) {
+    let upstreamJson;
+    try {
+      upstreamJson = await axios.post(chatUrl, requestPayload, {
+        headers: requestHeaders,
+        responseType: 'json',
+        timeout: streamRequestTimeoutMs,
+        validateStatus: (status) => status < 500,
+      });
+    } catch (err) {
+      console.error('[ai-stream] RunPod JSON request failed:', {
+        url: chatUrl,
+        message: err.message,
+        code: err.code || null,
+        status: err.response?.status || null,
+        statusText: err.response?.statusText || null,
+        timeoutMs: streamRequestTimeoutMs || null,
+      });
+      if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '')) {
+        throw new Error(
+          `RunPod cold start did not respond within ${RUNPOD_STREAM_REQUEST_TIMEOUT_MS / 1000}s. ` +
+            'The serverless worker may still be loading dolphin-llama3 into VRAM — wait 60–90 seconds and retry.'
+        );
+      }
+      throw err;
+    }
+
+    if (upstreamJson.status >= 400) {
+      const detail =
+        typeof upstreamJson.data === 'string'
+          ? upstreamJson.data
+          : JSON.stringify(upstreamJson.data || {});
+      console.error('[ai-stream] RunPod returned error status:', {
+        url: chatUrl,
+        status: upstreamJson.status,
+        statusText: upstreamJson.statusText || null,
+        body: (detail || '').slice(0, 500) || '(empty response body)',
+      });
+      throw new Error(`AI provider error (${upstreamJson.status}): ${detail || upstreamJson.statusText}`);
+    }
+
+    initSseHeaders(res);
+    applyTrialInterceptHeaders(res, meta.trialIntercept || null);
+
+    writeSseFrame(res, {
+      type: 'meta',
+      role: meta.role || 'CLIENT',
+      model,
+      streaming: false,
+      routing_mode: 'RUNPOD_OPENAI_SERVERLESS',
+      trialEndingSoon: meta.trialIntercept?.trialEndingSoon || false,
+      timeLeftStr: meta.trialIntercept?.timeLeftStr || '',
+      msRemaining: meta.trialIntercept?.msRemaining ?? null,
+      mode: meta.responseMode || mode,
+      word_limit_applied: applyWordLimit,
+      max_words: applyWordLimit ? MAX_RESPONSE_WORDS : null,
+      censored: !uncensored,
+      credits_bypassed: meta.creditsBypassed || false,
+    });
+
+    const completionText = extractRunPodJsonCompletion(upstreamJson.data);
+    const jsonStreamState = {
+      wordCount: 0,
+      emittedText: '',
+      truncated: false,
+    };
+
+    if (!completionText.trim()) {
+      const fallbackMessage =
+        'RunPod serverless returned an empty JSON completion (cold start may still be in progress). ' +
+        'Wait 60–90 seconds for the worker to load dolphin-llama3, then send your message again.';
+      console.error('[ai-stream] RunPod JSON response contained no completion text.', {
+        url: chatUrl,
+        status: upstreamJson.status,
+        responsePreview: JSON.stringify(upstreamJson.data || {}).slice(0, 500),
+      });
+      writeSseFrame(res, { content: fallbackMessage, providerEmptyStream: true });
+      jsonStreamState.emittedText = fallbackMessage;
+    } else if (applyWordLimit) {
+      emitWordLimitedContent(res, completionText, jsonStreamState);
+    } else {
+      writeSseFrame(res, { content: completionText });
+      jsonStreamState.emittedText = completionText;
+    }
+
+    res.write('data: [DONE]\n\n');
+    res.end();
+
+    return {
+      truncated: jsonStreamState.truncated,
+      wordCount: jsonStreamState.wordCount,
+      emittedText: jsonStreamState.emittedText,
+      completed: true,
+      emptyStream: !completionText.trim(),
+    };
+  }
+
   let upstream;
   try {
     upstream = await axios.post(chatUrl, requestPayload, {
@@ -1195,12 +1298,6 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       statusText: err.response?.statusText || null,
       timeoutMs: streamRequestTimeoutMs || null,
     });
-    if (useRunPodOpenAi && (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || ''))) {
-      throw new Error(
-        `RunPod cold start did not respond within ${RUNPOD_STREAM_REQUEST_TIMEOUT_MS / 1000}s. ` +
-          'The serverless worker may still be loading dolphin-llama3 into VRAM — wait 60–90 seconds and retry.'
-      );
-    }
     throw err;
   }
 
