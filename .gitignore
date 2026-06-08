@@ -7,3 +7,4 @@ npm-debug.log*
 Thumbs.db
 *.log
 .cursor/
+AI_Workspace/god_mode_persistent_chat.json
