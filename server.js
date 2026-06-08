@@ -779,18 +779,27 @@ function shouldUseRunPodOpenAiRouting(options = {}) {
 function resolveRunPodOpenAiChatUrl() {
   const endpointBase = getRunPodEndpointUrl();
   const normalized = endpointBase.replace(/\/$/, '');
+
   if (/\/openai\/v1\/chat\/completions$/i.test(normalized)) {
     return normalized;
   }
+
+  // Env often ends at .../v2/<id>/openai — append only /v1/chat/completions (avoid openai/openai).
+  if (/\/openai$/i.test(normalized)) {
+    return `${normalized}/v1/chat/completions`;
+  }
+
   if (/\/v1\/chat\/completions$/i.test(normalized)) {
-    if (/runpod\.ai/i.test(normalized)) {
+    if (/runpod\.ai/i.test(normalized) && !/\/openai\//i.test(normalized)) {
       return normalized.replace(/\/v1\/chat\/completions$/i, '/openai/v1/chat/completions');
     }
     return normalized;
   }
+
   if (/runpod\.ai\/v2\//i.test(normalized)) {
     return `${normalized}/openai/v1/chat/completions`;
   }
+
   return `${normalized}/openai/v1/chat/completions`;
 }
 
