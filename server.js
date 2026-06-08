@@ -813,7 +813,7 @@ function buildRunPodOpenAiPayload(prompt, options = {}) {
   const messages = buildAiMessages(prompt, { uncensored, webContext, mode });
 
   return {
-    model: resolveAiModel(uncensored) || NVIDIA_SERVERLESS_MODEL,
+    model: 'dolphin-llama3',
     messages,
     temperature: AI_TEMPERATURE,
     stream: true,
