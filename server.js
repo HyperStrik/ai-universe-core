@@ -361,7 +361,12 @@ function initSseHeaders(res) {
 function getAdminKey(req) {
   const auth = req.headers.authorization || '';
   if (auth.startsWith('Bearer ')) return auth.slice(7).trim();
-  return (req.headers['x-master-admin-key'] || req.headers['x-admin-key'] || '').trim();
+
+  const headerKey = (req.headers['x-master-admin-key'] || req.headers['x-admin-key'] || '').trim();
+  if (headerKey) return headerKey;
+
+  const body = req.body || {};
+  return String(body.master_admin_key || body.x_master_admin_key || body.admin_key || '').trim();
 }
 
 function isValidMasterOwnerKey(req) {
@@ -377,6 +382,41 @@ function applyMasterOwnerSession(req) {
 
 function isMasterOwnerChatRequest(req) {
   return isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER';
+}
+
+function godModeBypassClientRules(req, res, next) {
+  if (!isMasterOwnerChatRequest(req)) {
+    return next();
+  }
+
+  applyMasterOwnerSession(req);
+  req.skipDeviceFingerprint = true;
+  console.log('[god-mode] MASTER_OWNER bypass — device fingerprint and clientRules skipped.');
+  return next();
+}
+
+function handleGodModeSession(req, res, next) {
+  if (!isMasterOwnerChatRequest(req)) {
+    return next();
+  }
+
+  applyMasterOwnerSession(req);
+  const email = getClientIdentity(req).email || 'master-owner@god-mode';
+
+  return res.json({
+    email,
+    role: 'MASTER_OWNER',
+    effectiveRole: 'MASTER_OWNER',
+    trialEndingSoon: false,
+    timeLeftStr: '',
+    msRemaining: null,
+    creditLimit: null,
+    creditsUsed: 0,
+    trialDays: TRIAL_DAYS,
+    accountAgeDays: 0,
+    godMode: true,
+    deviceFingerprintRequired: false,
+  });
 }
 
 function getRunPodEndpointUrl() {
@@ -1750,7 +1790,7 @@ async function enforceClientRulesAsync(req, res) {
 }
 
 async function enforceClientRules(req, res, next) {
-  if (isMasterOwnerChatRequest(req)) {
+  if (isMasterOwnerChatRequest(req) || req.skipDeviceFingerprint) {
     applyMasterOwnerSession(req);
     return next();
   }
@@ -2118,7 +2158,7 @@ app.post('/api/verify-otp', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/user/session', authMiddleware, enforceClientRules, async (req, res) => {
+app.get('/api/user/session', authMiddleware, handleGodModeSession, godModeBypassClientRules, enforceClientRules, async (req, res) => {
   const intercept = getTrialEndingIntercept(req.user);
   res.json({
     email: req.user.email,
@@ -2133,7 +2173,7 @@ app.get('/api/user/session', authMiddleware, enforceClientRules, async (req, res
   });
 });
 
-app.post('/api/chat', authMiddleware, async (req, res) => {
+app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res) => {
   try {
     const { prompt, adminDeepScrape } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
@@ -2193,9 +2233,10 @@ app.post('/api/chat', authMiddleware, async (req, res) => {
 
 async function deepScrapeRouteHandler(req, res) {
   try {
-    if (req.role !== 'MASTER_OWNER') {
+    if (!isMasterOwnerChatRequest(req)) {
       return sendError(res, 403, 'MASTER_ONLY', 'Deep-Scrape requires MASTER_OWNER privileges.');
     }
+    applyMasterOwnerSession(req);
 
     const { prompt, query } = req.body || {};
     const finalPrompt = (typeof prompt === 'string' ? prompt : typeof query === 'string' ? query : '').trim();
@@ -2217,10 +2258,10 @@ async function deepScrapeRouteHandler(req, res) {
   }
 }
 
-app.post('/api/deep-scrape', authMiddleware, deepScrapeRouteHandler);
-app.post('/deep-scrape', authMiddleware, deepScrapeRouteHandler);
+app.post('/api/deep-scrape', authMiddleware, godModeBypassClientRules, deepScrapeRouteHandler);
+app.post('/deep-scrape', authMiddleware, godModeBypassClientRules, deepScrapeRouteHandler);
 
-app.post('/api/share-viral', authMiddleware, enforceClientRules, async (req, res) => {
+app.post('/api/share-viral', authMiddleware, godModeBypassClientRules, enforceClientRules, async (req, res) => {
   try {
     const { share_batch_hash: shareBatchHash } = req.body || {};
 
@@ -2249,7 +2290,7 @@ app.post('/api/share-viral', authMiddleware, enforceClientRules, async (req, res
   }
 });
 
-app.post('/api/user/whatsapp-share-track', authMiddleware, enforceClientRules, async (req, res) => {
+app.post('/api/user/whatsapp-share-track', authMiddleware, godModeBypassClientRules, enforceClientRules, async (req, res) => {
   try {
     const { share_batch_hash: shareBatchHash } = req.body || {};
     if (!shareBatchHash || typeof shareBatchHash !== 'string') {
@@ -2263,7 +2304,7 @@ app.post('/api/user/whatsapp-share-track', authMiddleware, enforceClientRules, a
   }
 });
 
-app.post('/api/god-workspace/write', authMiddleware, async (req, res) => {
+app.post('/api/god-workspace/write', authMiddleware, godModeBypassClientRules, async (req, res) => {
   if (!assertUncensoredGodModeFileAccess(req, res)) return;
 
   try {
@@ -2290,7 +2331,7 @@ app.post('/api/god-workspace/write', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/god-workspace/list', authMiddleware, async (req, res) => {
+app.get('/api/god-workspace/list', authMiddleware, godModeBypassClientRules, async (req, res) => {
   if (!assertUncensoredGodModeFileAccess(req, res)) return;
 
   try {
