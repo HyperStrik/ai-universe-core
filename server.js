@@ -384,13 +384,66 @@ function getRunPodAuthKey() {
 
 function getClientIdentity(req) {
   const body = req.body || {};
+  const headerEmail = (
+    req.headers['x-user-email'] ||
+    req.headers['x-client-email'] ||
+    req.headers['client-email'] ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
+  const bodyEmail = (body.email || body.user_email || body.userEmail || '')
+    .trim()
+    .toLowerCase();
+
   return {
-    email: (req.headers['x-user-email'] || body.email || '').trim().toLowerCase(),
+    email: headerEmail || bodyEmail,
     deviceFingerprint: (
       req.headers['x-device-fingerprint'] ||
       body.device_fingerprint ||
+      body.deviceFingerprint ||
       ''
     ).trim(),
+  };
+}
+
+function mergeDeveloperApiKeyIdentityFromBody(req, res, next) {
+  const body = req.body || {};
+  const emailFromBody = (body.email || body.user_email || body.userEmail || '')
+    .trim()
+    .toLowerCase();
+  const fingerprintFromBody = (body.device_fingerprint || body.deviceFingerprint || '').trim();
+
+  if (!req.headers['x-user-email'] && emailFromBody) {
+    req.headers['x-user-email'] = emailFromBody;
+  }
+  if (!req.headers['x-client-email'] && emailFromBody) {
+    req.headers['x-client-email'] = emailFromBody;
+  }
+  if (!req.headers['client-email'] && emailFromBody) {
+    req.headers['client-email'] = emailFromBody;
+  }
+  if (!req.headers['x-device-fingerprint'] && fingerprintFromBody) {
+    req.headers['x-device-fingerprint'] = fingerprintFromBody;
+  }
+
+  return next();
+}
+
+function formatSupabaseSchemaFailure(err) {
+  const message = String(err?.message || err || '');
+  const isSchemaIssue = /api_key|token_balance|tokens_used_lifetime|api_token_ledger|column|relation|schema cache/i.test(
+    message
+  );
+
+  if (!isSchemaIssue) return null;
+
+  return {
+    code: 'SUPABASE_SCHEMA_MISSING',
+    message:
+      'Supabase database schema is missing Developer API columns. Open the Supabase SQL editor and run schema.sql to add users.api_key, users.token_balance, users.tokens_used_lifetime, and the api_token_ledger table.',
+    hint: 'After migration, reload the API and click Create New Secret Key again.',
+    details: message,
   };
 }
 
@@ -1015,8 +1068,12 @@ async function assignClientApiKeyForUser(user) {
     }
 
     if (error.code === '23505') continue;
-    if (/api_key|column/i.test(error.message || '')) {
-      throw new Error('Developer API columns are missing. Run schema.sql migrations in Supabase.');
+    if (/api_key|token_balance|tokens_used_lifetime|column|relation|schema cache/i.test(error.message || '')) {
+      const schemaErr = new Error(
+        'Supabase schema missing Developer API columns (users.api_key, users.token_balance, users.tokens_used_lifetime). Run schema.sql migrations in Supabase SQL editor.'
+      );
+      schemaErr.code = 'SUPABASE_SCHEMA_MISSING';
+      throw schemaErr;
     }
     throw error;
   }
@@ -2695,7 +2752,12 @@ async function enforceClientRules(req, res, next) {
     const { email, deviceFingerprint } = getClientIdentity(req);
 
     if (!email) {
-      return sendError(res, 401, 'EMAIL_REQUIRED', 'Email registration is required.');
+      return sendError(
+        res,
+        401,
+        'EMAIL_REQUIRED',
+        'Email is required. Send x-user-email header or include email in the JSON request body.'
+      );
     }
     if (!deviceFingerprint) {
       return sendError(res, 401, 'DEVICE_REQUIRED', 'Device fingerprint is required.');
@@ -3142,11 +3204,24 @@ async function handleGenerateClientApiKey(req, res) {
     });
   } catch (err) {
     console.error('[developer-api/generate-api-key]', err.message);
+    const schemaFailure = formatSupabaseSchemaFailure(err);
+    if (schemaFailure || err.code === 'SUPABASE_SCHEMA_MISSING') {
+      return sendError(res, 503, schemaFailure?.code || 'SUPABASE_SCHEMA_MISSING', schemaFailure?.message || err.message, {
+        hint: schemaFailure?.hint || 'Run schema.sql against your Supabase project, then retry key generation.',
+        details: schemaFailure?.details || err.message,
+      });
+    }
     return sendError(res, 500, 'API_KEY_GENERATION_FAILED', err.message || 'Failed to generate API key.');
   }
 }
 
-app.post('/api/user/generate-api-key', authMiddleware, enforceClientRules, handleGenerateClientApiKey);
+app.post(
+  '/api/user/generate-api-key',
+  authMiddleware,
+  mergeDeveloperApiKeyIdentityFromBody,
+  enforceClientRules,
+  handleGenerateClientApiKey
+);
 
 app.post('/api/v1/chat/completions', commercialApiAuthMiddleware, async (req, res) => {
   try {
