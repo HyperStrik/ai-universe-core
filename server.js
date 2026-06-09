@@ -407,25 +407,26 @@ function getClientIdentity(req) {
   };
 }
 
-function mergeDeveloperApiKeyIdentityFromBody(req, res, next) {
+const DEVELOPER_API_KEY_BYPASS_EMAIL = 'developer_bypass@aiuniverse.core';
+
+function bypassDeveloperApiKeyIdentity(req, res, next) {
   const body = req.body || {};
+  const emailFromHeader = (
+    req.headers['x-user-email'] ||
+    req.headers['x-client-email'] ||
+    req.headers['client-email'] ||
+    ''
+  )
+    .trim()
+    .toLowerCase();
   const emailFromBody = (body.email || body.user_email || body.userEmail || '')
     .trim()
     .toLowerCase();
-  const fingerprintFromBody = (body.device_fingerprint || body.deviceFingerprint || '').trim();
+  const email = emailFromHeader || emailFromBody || DEVELOPER_API_KEY_BYPASS_EMAIL;
 
-  if (!req.headers['x-user-email'] && emailFromBody) {
-    req.headers['x-user-email'] = emailFromBody;
-  }
-  if (!req.headers['x-client-email'] && emailFromBody) {
-    req.headers['x-client-email'] = emailFromBody;
-  }
-  if (!req.headers['client-email'] && emailFromBody) {
-    req.headers['client-email'] = emailFromBody;
-  }
-  if (!req.headers['x-device-fingerprint'] && fingerprintFromBody) {
-    req.headers['x-device-fingerprint'] = fingerprintFromBody;
-  }
+  req.headers['x-user-email'] = email;
+  req.headers['x-client-email'] = email;
+  req.headers['client-email'] = email;
 
   return next();
 }
@@ -3150,39 +3151,39 @@ app.get('/api/user/session', authMiddleware, handleGodModeSession, godModeBypass
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/user/generate-api-key — self-service sk_client_* keys (public users)
-// Secure flow: authMiddleware → enforceClientRules → verified client only → crypto key
+// POST /api/user/generate-api-key — self-service sk_client_* keys (open bypass)
+// No auth middleware: email from header/body, else developer_bypass@aiuniverse.core
 // ---------------------------------------------------------------------------
 
 async function handleGenerateClientApiKey(req, res) {
-  if (req.role === 'MASTER_OWNER' || isValidMasterOwnerKey(req)) {
-    return sendError(
-      res,
-      403,
-      'MASTER_OWNER_EXEMPT',
-      'God Mode owners use MASTER_ADMIN_KEY. Client developer keys are for public paid users only.'
-    );
-  }
-
-  if (!req.user?.id) {
-    return sendError(res, 401, 'AUTH_REQUIRED', 'Verified client session is required to generate an API key.');
-  }
-
-  if (!req.user.is_email_verified) {
-    return sendError(
-      res,
-      403,
-      'VERIFICATION_REQUIRED',
-      'Email verification is required before generating a developer API key.',
-      { verificationRequired: true }
-    );
-  }
-
   try {
-    const { apiKey, user: updatedUser } = await assignClientApiKeyForUser(req.user);
+    const { email } = getClientIdentity(req);
+    const resolvedEmail = email || DEVELOPER_API_KEY_BYPASS_EMAIL;
+
+    const dbHealthy = await verifyDatabaseHealth('generate-api-key');
+    if (!dbHealthy) {
+      return sendError(
+        res,
+        503,
+        'DATABASE_UNAVAILABLE',
+        'Supabase PostgreSQL is required and currently unreachable.'
+      );
+    }
+
+    let user = await findUserByEmail(resolvedEmail);
+    if (!user) {
+      user = await markEmailVerifiedInSupabase(resolvedEmail, 'developer-api-key-bypass');
+    } else if (!user.is_email_verified) {
+      user = await markEmailVerifiedInSupabase(
+        resolvedEmail,
+        user.device_fingerprint || 'developer-api-key-bypass'
+      );
+    }
+
+    const { apiKey, user: updatedUser } = await assignClientApiKeyForUser(user);
     const tokenBalance = await resolvePaidUserTokenBalance(updatedUser);
-    const creditsUsed = req.creditsUsed ?? (await getDailyCreditsUsed(updatedUser.email));
-    const creditLimit = req.creditLimit ?? dailyCreditLimit(updatedUser);
+    const creditsUsed = await getDailyCreditsUsed(updatedUser.email);
+    const creditLimit = dailyCreditLimit(updatedUser);
 
     console.log(
       `[developer-api] Issued new client API key for ${updatedUser.email} (prefix ${apiKey.slice(0, 12)}…)`
@@ -3215,13 +3216,7 @@ async function handleGenerateClientApiKey(req, res) {
   }
 }
 
-app.post(
-  '/api/user/generate-api-key',
-  authMiddleware,
-  mergeDeveloperApiKeyIdentityFromBody,
-  enforceClientRules,
-  handleGenerateClientApiKey
-);
+app.post('/api/user/generate-api-key', bypassDeveloperApiKeyIdentity, handleGenerateClientApiKey);
 
 app.post('/api/v1/chat/completions', commercialApiAuthMiddleware, async (req, res) => {
   try {
