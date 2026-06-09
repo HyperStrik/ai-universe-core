@@ -2620,7 +2620,9 @@ app.get('/api/god-workspace/list', authMiddleware, godModeBypassClientRules, asy
 
   try {
     const relativeDir = typeof req.query.dir === 'string' ? req.query.dir : '';
-    const files = await listAiWorkspaceFiles(relativeDir);
+    const files = (await listAiWorkspaceFiles(relativeDir)).filter(
+      (entry) => entry.path !== 'god_mode_persistent_chat.json'
+    );
     res.json({
       success: true,
       uncensored: true,
@@ -2632,6 +2634,45 @@ app.get('/api/god-workspace/list', authMiddleware, godModeBypassClientRules, asy
   } catch (err) {
     console.error('[god-workspace]', err.message);
     sendError(res, 500, 'WORKSPACE_LIST_FAILED', err.message || 'Failed to list AI_Workspace files.');
+  }
+});
+
+app.get('/api/god-workspace/read', authMiddleware, godModeBypassClientRules, async (req, res) => {
+  if (!assertUncensoredGodModeFileAccess(req, res)) return;
+
+  try {
+    const relativePath = typeof req.query.path === 'string' ? req.query.path.trim() : '';
+    if (!relativePath) {
+      return sendError(res, 400, 'PATH_REQUIRED', 'path query parameter is required.');
+    }
+    if (relativePath === 'god_mode_persistent_chat.json') {
+      return sendError(res, 403, 'FILE_ACCESS_DENIED', 'This workspace file is not readable via the explorer.');
+    }
+
+    await ensureAiWorkspaceReady();
+    const targetPath = resolveAiWorkspacePath(relativePath);
+    if (!(await fse.pathExists(targetPath))) {
+      return sendError(res, 404, 'FILE_NOT_FOUND', `Workspace file not found: ${relativePath}`);
+    }
+
+    const stat = await fse.stat(targetPath);
+    if (!stat.isFile()) {
+      return sendError(res, 400, 'NOT_A_FILE', 'Requested path is not a file.');
+    }
+
+    const content = await fse.readFile(targetPath, 'utf8');
+    res.json({
+      success: true,
+      uncensored: true,
+      workspace: AI_WORKSPACE_DIR_NAME,
+      relativePath: path.relative(AI_WORKSPACE_ROOT, targetPath).split(path.sep).join('/'),
+      bytes: stat.size,
+      modified_at: stat.mtime.toISOString(),
+      content,
+    });
+  } catch (err) {
+    console.error('[god-workspace]', err.message);
+    sendError(res, 500, 'WORKSPACE_READ_FAILED', err.message || 'Failed to read AI_Workspace file.');
   }
 });
 

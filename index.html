@@ -56,7 +56,28 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
+    .god-workspace-grid {
+      display: grid;
+      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(280px, 360px);
+      min-height: 0;
+      flex: 1;
+    }
+    .god-center-stack {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) 190px;
+      min-height: 0;
+      border-right: 1px solid #1f2937;
+    }
+    .god-file-item { cursor: pointer; }
+    .god-file-item.active { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+    .god-terminal-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    #godMonacoEditor { width: 100%; height: 100%; min-height: 280px; }
+    @media (max-width: 1024px) {
+      .god-workspace-grid { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+      .god-center-stack { border-right: 0; }
+    }
   </style>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs/loader.js"></script>
 </head>
 <body class="h-full bg-surface text-slate-100 antialiased">
   <div id="app" class="h-full flex flex-col lg:flex-row">
@@ -219,7 +240,7 @@
         </div>
       </section>
 
-      <section id="screen-godmode" class="screen flex-1 min-h-0">
+      <section id="screen-godmode" class="screen flex-1 min-h-0 overflow-hidden">
         <div class="px-6 py-4 border-b border-edge grid lg:grid-cols-2 gap-4">
           <div>
             <label class="text-xs uppercase tracking-wide text-slate-400">Master Admin Key</label>
@@ -233,87 +254,72 @@
         <div id="godmodeLocked" class="px-6 py-8 text-center text-slate-400">Enter and save a valid master admin key to access operational controllers.</div>
 
         <div id="godmodePanels" class="hidden flex-1 min-h-0 flex flex-col">
-          <div class="px-6 py-4 border-b border-edge bg-gradient-to-r from-accent2/10 via-purple-500/10 to-accent2/10">
-            <label class="text-xs uppercase tracking-widest text-accent2 font-semibold">
-              ⚡ Deep-Scrape God Engine Search (1000x Power Access)
-            </label>
-            <div class="mt-3 flex flex-col lg:flex-row gap-3">
-              <input
-                id="deepScrapeQuery"
-                type="text"
-                placeholder="Enter elite system architecture or code intelligence query..."
-                class="god-scrape-glow flex-1 rounded-xl bg-slate-950 border border-accent2/40 px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent2"
-              />
-              <button
-                id="deepScrapeBtn"
-                class="rounded-xl bg-gradient-to-r from-accent2 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold px-6 py-3 shrink-0"
-              >
-                Execute Deep-Scrape
-              </button>
+          <div class="px-4 py-2 border-b border-edge flex items-center justify-between gap-3 bg-slate-950/60">
+            <div class="flex items-center gap-2 text-xs uppercase tracking-widest text-accent2 font-semibold">
+              <span>⚡ Cursor Clone Workspace</span>
+              <span class="text-slate-500 normal-case tracking-normal">God Mode · uncensored</span>
             </div>
-            <p class="mt-2 text-xs text-slate-400">
-              Dispatches MASTER_OWNER deep-scrape with recursive web layers and uncensored Dolphin synthesis.
-            </p>
+            <button id="toggleGodOpsBtn" type="button" class="text-xs px-3 py-1.5 rounded-lg border border-edge hover:bg-slate-800 text-slate-300">
+              Admin Ops
+            </button>
           </div>
 
-          <div class="px-6 py-4 grid lg:grid-cols-2 gap-6">
-            <div class="rounded-2xl border border-edge bg-panel p-5 space-y-4">
-              <h3 class="font-semibold text-lg">Telegram Member Scraper Suite</h3>
-              <p class="text-sm text-slate-400">Dispatch scrape jobs against a Telegram target group identifier.</p>
-              <label class="text-xs uppercase tracking-wide text-slate-400">targetGroupId</label>
-              <input id="targetGroupId" type="text" placeholder="@enterprise_signals_group" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
-              <button id="scrapeTelegramBtn" class="w-full rounded-xl bg-accent2 hover:bg-blue-500 text-white py-2.5 font-medium">Execute Telegram Scrape</button>
+          <div id="godOpsPanel" class="hidden border-b border-edge px-4 py-4 space-y-4 bg-panel/80">
+            <div class="flex flex-col lg:flex-row gap-3">
+              <input id="deepScrapeQuery" type="text" placeholder="Deep-Scrape query..." class="god-scrape-glow flex-1 rounded-xl bg-slate-950 border border-accent2/40 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent2" />
+              <button id="deepScrapeBtn" class="rounded-xl bg-gradient-to-r from-accent2 to-purple-600 text-white font-semibold px-5 py-2 text-sm shrink-0">Deep-Scrape</button>
             </div>
-
-            <div class="rounded-2xl border border-edge bg-panel p-5 space-y-4">
-              <h3 class="font-semibold text-lg">B2B Outreach Engine Dispatcher</h3>
-              <p class="text-sm text-slate-400">Trigger enterprise outreach automation sequences instantly.</p>
-              <label class="text-xs uppercase tracking-wide text-slate-400">Campaign Name</label>
-              <input id="campaignName" type="text" value="q2_enterprise_wave" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
-              <label class="text-xs uppercase tracking-wide text-slate-400">Audience Segment</label>
-              <input id="audienceSegment" type="text" value="enterprise_leads_tier_a" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
-              <label class="inline-flex items-center gap-2 text-sm text-slate-300">
-                <input id="dryRun" type="checkbox" class="rounded border-edge" /> Dry Run Mode
-              </label>
-              <button id="triggerOutreachBtn" class="w-full rounded-xl bg-purple-600 hover:bg-purple-500 text-white py-2.5 font-medium">Trigger Outreach Pipeline</button>
-            </div>
-          </div>
-
-          <div class="flex-1 min-h-0 px-6 pb-4 flex flex-col">
-            <div class="rounded-2xl border border-edge bg-black/40 flex-1 min-h-0 flex flex-col">
-              <div class="px-4 py-2 border-b border-edge text-xs uppercase tracking-wide text-slate-400">Admin Console Stream</div>
-              <pre id="adminConsole" class="console-scroll flex-1 overflow-y-auto p-4 text-xs text-emerald-300 whitespace-pre-wrap"></pre>
-            </div>
-          </div>
-
-          <div class="px-6 pb-6">
-            <div class="rounded-2xl border border-accent2/30 bg-panel p-5 space-y-4 shadow-lg shadow-accent2/5">
-              <div>
-                <h3 class="font-semibold text-lg text-accent2">God Mode Direct AI Chat</h3>
-                <p class="text-sm text-slate-400 mt-1">
-                  Direct uncensored Dolphin/Ollama dialogue via MASTER_OWNER <code class="text-xs text-slate-300">/api/chat</code>.
-                </p>
+            <div class="grid lg:grid-cols-2 gap-4">
+              <div class="rounded-xl border border-edge bg-slate-950 p-3 space-y-2">
+                <p class="text-xs font-semibold text-slate-300">Telegram Scraper</p>
+                <input id="targetGroupId" type="text" placeholder="@group_id" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
+                <button id="scrapeTelegramBtn" class="w-full rounded-lg bg-accent2 hover:bg-blue-500 text-white py-2 text-sm">Execute</button>
               </div>
-              <div
-                id="godDirectChatHistory"
-                class="chat-scroll min-h-[500px] max-h-[75vh] overflow-y-auto overflow-x-hidden rounded-xl bg-slate-950/90 border border-edge p-5 space-y-4 text-sm leading-relaxed shadow-inner"
-              ></div>
-              <div class="flex flex-col sm:flex-row gap-3">
-                <input
-                  id="godDirectChatInput"
-                  type="text"
-                  placeholder="Ask Dolphin anything directly..."
-                  class="flex-1 rounded-xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent2"
-                />
-                <button
-                  id="godDirectChatSendBtn"
-                  type="button"
-                  class="rounded-xl bg-accent2 hover:bg-blue-500 text-white font-semibold px-6 py-3 shrink-0"
-                >
-                  Send
-                </button>
+              <div class="rounded-xl border border-edge bg-slate-950 p-3 space-y-2">
+                <p class="text-xs font-semibold text-slate-300">B2B Outreach</p>
+                <input id="campaignName" type="text" value="q2_enterprise_wave" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
+                <input id="audienceSegment" type="text" value="enterprise_leads_tier_a" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm" />
+                <label class="inline-flex items-center gap-2 text-xs text-slate-300"><input id="dryRun" type="checkbox" class="rounded border-edge" /> Dry Run</label>
+                <button id="triggerOutreachBtn" class="w-full rounded-lg bg-purple-600 hover:bg-purple-500 text-white py-2 text-sm">Trigger</button>
               </div>
             </div>
+            <pre id="adminConsole" class="console-scroll hidden max-h-24 overflow-y-auto p-2 text-xs text-emerald-300 whitespace-pre-wrap rounded-lg bg-black/50 border border-edge"></pre>
+          </div>
+
+          <div class="god-workspace-grid flex-1 min-h-0">
+            <aside class="border-r border-edge bg-[#0d1117] flex flex-col min-h-0">
+              <div class="px-3 py-2 border-b border-edge flex items-center justify-between">
+                <span class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Explorer</span>
+                <button id="refreshGodFilesBtn" type="button" class="text-[10px] text-accent2 hover:text-blue-300">Refresh</button>
+              </div>
+              <div id="godFileExplorer" class="chat-scroll flex-1 overflow-y-auto p-2 text-xs text-slate-300 space-y-0.5"></div>
+            </aside>
+
+            <section class="god-center-stack min-h-0 bg-[#1e1e1e]">
+              <div class="flex flex-col min-h-0 border-b border-edge">
+                <div class="px-3 py-1.5 border-b border-edge bg-[#252526] flex items-center justify-between gap-2">
+                  <span id="godMonacoTab" class="text-[10px] uppercase tracking-widest text-slate-400 truncate">Monaco Editor</span>
+                  <span class="text-[10px] text-slate-500 shrink-0">AI_Workspace</span>
+                </div>
+                <div id="godMonacoEditor" class="flex-1 min-h-0"></div>
+              </div>
+              <div class="flex flex-col min-h-0 bg-black">
+                <div class="px-3 py-1.5 border-b border-edge bg-[#0a0a0a] text-[10px] uppercase tracking-widest text-slate-500">Terminal</div>
+                <pre id="godTerminal" class="god-terminal-line chat-scroll flex-1 overflow-y-auto p-3 text-[11px] text-emerald-400 whitespace-pre-wrap"></pre>
+              </div>
+            </section>
+
+            <aside class="flex flex-col min-h-0 bg-panel border-l border-edge">
+              <div class="px-4 py-3 border-b border-edge">
+                <h3 class="font-semibold text-sm text-accent2">Ctrl+L · Dolphin Chat</h3>
+                <p class="text-[11px] text-slate-400 mt-1">Uncensored God Mode dialogue</p>
+              </div>
+              <div id="godDirectChatHistory" class="chat-scroll flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 text-sm leading-relaxed min-h-0"></div>
+              <div class="p-3 border-t border-edge space-y-2">
+                <input id="godDirectChatInput" type="text" placeholder="Ask Dolphin to build, explain, or architect..." class="w-full rounded-xl bg-slate-900 border border-edge px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent2" />
+                <button id="godDirectChatSendBtn" type="button" class="w-full rounded-xl bg-accent2 hover:bg-blue-500 text-white font-semibold px-4 py-2.5 text-sm">Send</button>
+              </div>
+            </aside>
           </div>
         </div>
       </section>
@@ -358,7 +364,15 @@
       pricingReason: '',
       sessionMsRemaining: null,
       otpAutoSendAttempted: false,
+      godWorkspace: {
+        files: {},
+        activeFile: null,
+        treeEntries: [],
+        monacoReady: false,
+      },
     };
+
+    let godMonacoEditor = null;
 
     const el = {
       apiBase: document.getElementById('apiBase'),
@@ -400,6 +414,12 @@
       godDirectChatHistory: document.getElementById('godDirectChatHistory'),
       godDirectChatInput: document.getElementById('godDirectChatInput'),
       godDirectChatSendBtn: document.getElementById('godDirectChatSendBtn'),
+      godFileExplorer: document.getElementById('godFileExplorer'),
+      refreshGodFilesBtn: document.getElementById('refreshGodFilesBtn'),
+      godMonacoTab: document.getElementById('godMonacoTab'),
+      godTerminal: document.getElementById('godTerminal'),
+      toggleGodOpsBtn: document.getElementById('toggleGodOpsBtn'),
+      godOpsPanel: document.getElementById('godOpsPanel'),
       toastHost: document.getElementById('toastHost'),
     };
 
@@ -477,6 +497,224 @@
       if (name === 'pricing') {
         el.pricingAlert.classList.remove('hidden');
         el.pricingAlertText.textContent = state.pricingReason || 'Select a plan to restore full platform access and increase daily AI credits.';
+      }
+
+      if (name === 'godmode' && state.adminUnlocked) {
+        initGodMonacoEditor();
+        refreshGodFileExplorer();
+        requestAnimationFrame(() => godMonacoEditor?.layout());
+      }
+    }
+
+    function appendGodTerminalLog(message, tone) {
+      if (!el.godTerminal) return;
+      const stamp = new Date().toLocaleTimeString();
+      const prefix = tone === 'error' ? '[ERR]' : tone === 'warn' ? '[WARN]' : '[LOG]';
+      const line = `${stamp} ${prefix} ${message}\n`;
+      el.godTerminal.textContent += line;
+      el.godTerminal.scrollTop = el.godTerminal.scrollHeight;
+    }
+
+    function detectMonacoLanguage(filePath) {
+      const ext = String(filePath || '').split('.').pop()?.toLowerCase() || '';
+      const map = {
+        js: 'javascript',
+        jsx: 'javascript',
+        ts: 'typescript',
+        tsx: 'typescript',
+        py: 'python',
+        html: 'html',
+        css: 'css',
+        json: 'json',
+        md: 'markdown',
+        sql: 'sql',
+        sh: 'shell',
+        yml: 'yaml',
+        yaml: 'yaml',
+        xml: 'xml',
+        java: 'java',
+        cpp: 'cpp',
+        c: 'c',
+        go: 'go',
+        rs: 'rust',
+        php: 'php',
+      };
+      return map[ext] || 'plaintext';
+    }
+
+    function stripWorkspaceTagsFromDisplay(text) {
+      return String(text || '')
+        .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>\n[\s\S]*?(?:<<<END_AI_WORKSPACE_WRITE>>>|$)/g, '')
+        .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>/g, '')
+        .replace(/<<<END_AI_WORKSPACE_WRITE>>>/g, '')
+        .trim();
+    }
+
+    function setGodMonacoContent(content, filePath) {
+      if (filePath) {
+        state.godWorkspace.files[filePath] = content || '';
+        state.godWorkspace.activeFile = filePath;
+      }
+
+      if (!godMonacoEditor || !state.godWorkspace.monacoReady) return;
+
+      const lang = detectMonacoLanguage(filePath);
+      const model = godMonacoEditor.getModel();
+      if (model) {
+        monaco.editor.setModelLanguage(model, lang);
+        model.setValue(content || '');
+        const lineCount = model.getLineCount();
+        godMonacoEditor.revealLine(lineCount);
+      }
+      if (el.godMonacoTab && filePath) {
+        el.godMonacoTab.textContent = filePath;
+      }
+    }
+
+    function initGodMonacoEditor() {
+      if (state.godWorkspace.monacoReady || !window.require) return;
+
+      require.config({
+        paths: { vs: 'https://cdn.jsdelivr.net/npm/monaco-editor@0.45.0/min/vs' },
+      });
+
+      require(['vs/editor/editor.main'], () => {
+        if (godMonacoEditor) return;
+        godMonacoEditor = monaco.editor.create(document.getElementById('godMonacoEditor'), {
+          value: '// God Mode Workspace\n// Ask Dolphin to build software — code streams here live.\n',
+          language: 'javascript',
+          theme: 'vs-dark',
+          automaticLayout: true,
+          fontSize: 13,
+          minimap: { enabled: true },
+          scrollBeyondLastLine: false,
+          wordWrap: 'on',
+        });
+        state.godWorkspace.monacoReady = true;
+        if (state.godWorkspace.activeFile) {
+          setGodMonacoContent(
+            state.godWorkspace.files[state.godWorkspace.activeFile] || '',
+            state.godWorkspace.activeFile
+          );
+        }
+        godMonacoEditor.layout();
+        appendGodTerminalLog(`Monaco Editor ready · API ${getApiBase()}`, 'info');
+      });
+    }
+
+    function renderGodFileExplorer() {
+      if (!el.godFileExplorer) return;
+      el.godFileExplorer.innerHTML = '';
+
+      const entries = state.godWorkspace.treeEntries.length
+        ? state.godWorkspace.treeEntries
+        : Object.keys(state.godWorkspace.files).map((path) => ({ type: 'file', path }));
+
+      if (!entries.length) {
+        el.godFileExplorer.innerHTML = '<p class="text-slate-500 px-2 py-1">No workspace files yet.</p>';
+        return;
+      }
+
+      entries.forEach((entry) => {
+        if (entry.type === 'directory') {
+          const dir = document.createElement('div');
+          dir.className = 'px-2 py-1 text-slate-500 font-semibold';
+          dir.textContent = `📁 ${entry.path}`;
+          el.godFileExplorer.appendChild(dir);
+          return;
+        }
+
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = `god-file-item w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800/80 truncate ${
+          state.godWorkspace.activeFile === entry.path ? 'active' : ''
+        }`;
+        btn.textContent = `📄 ${entry.path}`;
+        btn.title = entry.path;
+        btn.addEventListener('click', () => openGodWorkspaceFile(entry.path));
+        el.godFileExplorer.appendChild(btn);
+      });
+    }
+
+    async function openGodWorkspaceFile(filePath) {
+      state.godWorkspace.activeFile = filePath;
+      renderGodFileExplorer();
+
+      if (state.godWorkspace.files[filePath]) {
+        setGodMonacoContent(state.godWorkspace.files[filePath], filePath);
+        appendGodTerminalLog(`Opened workspace file: ${filePath}`, 'info');
+        return;
+      }
+
+      try {
+        const { response, payload } = await apiRequest(
+          `/api/god-workspace/read?path=${encodeURIComponent(filePath)}`,
+          { method: 'GET', headers: getAdminHeaders() }
+        );
+
+        if (response.ok && typeof payload.content === 'string') {
+          setGodMonacoContent(payload.content, filePath);
+          appendGodTerminalLog(`Loaded ${filePath} (${payload.bytes || 0} bytes)`, 'info');
+          return;
+        }
+
+        setGodMonacoContent(
+          `// ${filePath}\n// File listed in AI_Workspace — awaiting content.\n`,
+          filePath
+        );
+        appendGodTerminalLog(`Could not load ${filePath}: ${payload.message || response.status}`, 'warn');
+      } catch (error) {
+        setGodMonacoContent(`// ${filePath}\n// ${error.message}\n`, filePath);
+        appendGodTerminalLog(`Explorer read failed: ${error.message}`, 'warn');
+      }
+    }
+
+    async function refreshGodFileExplorer() {
+      if (!state.adminUnlocked) return;
+
+      try {
+        const { response, payload } = await apiRequest('/api/god-workspace/list', {
+          method: 'GET',
+          headers: getAdminHeaders(),
+        });
+
+        if (response.ok && Array.isArray(payload.entries)) {
+          state.godWorkspace.treeEntries = payload.entries.filter((e) => e.type === 'file');
+          renderGodFileExplorer();
+          appendGodTerminalLog(`Workspace index synced (${payload.entries.length} entries).`, 'info');
+          return;
+        }
+
+        renderGodFileExplorer();
+      } catch (error) {
+        renderGodFileExplorer();
+        appendGodTerminalLog(`Explorer refresh failed: ${error.message}`, 'warn');
+      }
+    }
+
+    function syncGodWorkspaceFromStream(fullText) {
+      if (!fullText) return;
+
+      const blockPattern = /<<<AI_WORKSPACE_WRITE:([^\n>]+)>>>\n([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|$)/g;
+      let match;
+      let activePath = null;
+      let activeContent = '';
+
+      while ((match = blockPattern.exec(fullText)) !== null) {
+        const filePath = match[1].trim();
+        const fileContent = match[2];
+        state.godWorkspace.files[filePath] = fileContent;
+        activePath = filePath;
+        activeContent = fileContent;
+      }
+
+      if (activePath) {
+        state.godWorkspace.activeFile = activePath;
+        setGodMonacoContent(activeContent, activePath);
+        if (!state.godWorkspace.treeEntries.find((e) => e.path === activePath)) {
+          state.godWorkspace.treeEntries.push({ type: 'file', path: activePath });
+        }
+        renderGodFileExplorer();
       }
     }
 
@@ -900,6 +1138,7 @@
       appendGodDirectChatEntry('user', prompt);
       el.godDirectChatInput.value = '';
       el.godDirectChatSendBtn.disabled = true;
+      appendGodTerminalLog(`Prompt dispatched → ${getApiBase()}/api/chat`, 'info');
 
       const assistantNode = appendGodDirectChatEntry('assistant', '');
 
@@ -962,7 +1201,8 @@
                     ? payload.content.replace(TRUNCATION_BADGE, '')
                     : payload.content;
                   fullText += chunk;
-                  assistantNode.body.textContent = fullText;
+                  syncGodWorkspaceFromStream(fullText);
+                  assistantNode.body.textContent = stripWorkspaceTagsFromDisplay(fullText) || 'Writing to workspace…';
                   el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
                 }
               }
@@ -988,6 +1228,12 @@
 
           if (!fullText.trim()) {
             assistantNode.body.textContent = 'No response content returned from model.';
+          } else {
+            syncGodWorkspaceFromStream(fullText);
+            const chatDisplay = stripWorkspaceTagsFromDisplay(fullText);
+            assistantNode.body.textContent = chatDisplay || 'Workspace files updated — see Monaco editor.';
+            await refreshGodFileExplorer();
+            appendGodTerminalLog('God Mode stream completed — workspace synced.', 'info');
           }
         } else {
           const payload = await response.json();
@@ -1156,7 +1402,10 @@
     function logAdminConsole(label, payload) {
       const stamp = new Date().toISOString();
       const formatted = `[${stamp}] ${label}\n${JSON.stringify(payload, null, 2)}\n\n`;
-      el.adminConsole.textContent = formatted + el.adminConsole.textContent;
+      if (el.adminConsole) {
+        el.adminConsole.textContent = formatted + el.adminConsole.textContent;
+      }
+      appendGodTerminalLog(`${label} · ${JSON.stringify(payload)}`, 'info');
     }
 
     async function runAdminAction(path, body, label) {
@@ -1205,6 +1454,9 @@
       el.godmodePanels.classList.remove('hidden');
       showToast('God Mode session unlocked locally.', 'success');
       logAdminConsole('SESSION', { status: 'admin_panel_unlocked' });
+      initGodMonacoEditor();
+      appendGodTerminalLog(`God Mode workspace online · localhost mirror of ${getApiBase()}`, 'info');
+      refreshGodFileExplorer();
     }
 
     function ensureDeviceFingerprint() {
@@ -1228,6 +1480,9 @@
         state.adminUnlocked = true;
         el.godmodeLocked.classList.add('hidden');
         el.godmodePanels.classList.remove('hidden');
+        initGodMonacoEditor();
+        appendGodTerminalLog(`God Mode workspace restored · ${getApiBase()}`, 'info');
+        refreshGodFileExplorer();
       }
     }
 
@@ -1262,6 +1517,10 @@
         }
       });
       el.unlockGodModeBtn.addEventListener('click', unlockGodMode);
+      el.refreshGodFilesBtn.addEventListener('click', refreshGodFileExplorer);
+      el.toggleGodOpsBtn.addEventListener('click', () => {
+        el.godOpsPanel.classList.toggle('hidden');
+      });
       el.godDirectChatSendBtn.addEventListener('click', sendGodDirectChat);
       el.godDirectChatInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
@@ -1302,6 +1561,9 @@
           const redisHint = payload.redis ? ` · Redis ${payload.redis}` : '';
           el.statusPill.textContent = `System ${payload.status || 'online'}${redisHint}`;
           el.statusPill.className = 'text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30';
+          if (state.adminUnlocked) {
+            appendGodTerminalLog(`Health OK · ${getApiBase()} · ${payload.status || 'online'}${redisHint}`, 'info');
+          }
         } else {
           throw new Error('health not ok');
         }
