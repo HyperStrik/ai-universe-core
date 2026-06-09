@@ -544,9 +544,10 @@
 
     function stripWorkspaceTagsFromDisplay(text) {
       return String(text || '')
-        .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>\n[\s\S]*?(?:<<<END_AI_WORKSPACE_WRITE>>>|$)/g, '')
+        .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>\n[\s\S]*?(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>|$)/g, '')
         .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>/g, '')
         .replace(/<<<END_AI_WORKSPACE_WRITE>>>/g, '')
+        .replace(/<<<AI_WORKSPACE_WRITE_END>>>/g, '')
         .trim();
     }
 
@@ -695,7 +696,7 @@
     function syncGodWorkspaceFromStream(fullText) {
       if (!fullText) return;
 
-      const blockPattern = /<<<AI_WORKSPACE_WRITE:([^\n>]+)>>>\n([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|$)/g;
+      const blockPattern = /<<<AI_WORKSPACE_WRITE:([^\n>]+)>>>\n([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>|$)/g;
       let match;
       let activePath = null;
       let activeContent = '';
