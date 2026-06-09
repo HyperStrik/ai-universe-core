@@ -23,7 +23,9 @@ const PROJECT_ROOT = path.resolve(__dirname);
 const AI_WORKSPACE_DIR_NAME = 'AI_Workspace';
 const AI_WORKSPACE_ROOT = path.join(PROJECT_ROOT, AI_WORKSPACE_DIR_NAME);
 const GOD_MODE_HISTORY_FILE = path.join(AI_WORKSPACE_ROOT, 'god_mode_persistent_chat.json');
-const MAX_GOD_MODE_HISTORY_MESSAGES = 48;
+const MAX_GOD_MODE_HISTORY_STORED = 48;
+const MAX_GOD_MODE_HISTORY_RUNPOD_MESSAGES = 12;
+const MAX_GOD_MODE_HISTORY_CHARS_PER_MESSAGE = 2400;
 const PORT = Number(process.env.PORT) || 5000;
 const API_VERSION = '5.0.0';
 
@@ -43,6 +45,9 @@ const DEFAULT_LOCAL_MODEL = 'dolphin-llama3';
 const NVIDIA_SERVERLESS_MODEL = 'dolphin-llama3-uncensored';
 const AI_TEMPERATURE = 0.75;
 const RUNPOD_STREAM_REQUEST_TIMEOUT_MS = 120000;
+const RUNPOD_MAX_COMPLETION_TOKENS = 4000;
+const RUNPOD_TEMPERATURE = 0.7;
+const RUNPOD_TOP_P = 0.9;
 
 function stripQuotes(value) {
   if (!value) return '';
@@ -643,7 +648,24 @@ function sanitizeGodModeHistoryMessages(messages) {
       content: entry.content.trim(),
       timestamp: entry.timestamp || null,
     }))
-    .slice(-MAX_GOD_MODE_HISTORY_MESSAGES);
+    .slice(-MAX_GOD_MODE_HISTORY_STORED);
+}
+
+function trimHistoryForRunPodContext(messages) {
+  const sanitized = sanitizeGodModeHistoryMessages(messages);
+  const recent = sanitized.slice(-MAX_GOD_MODE_HISTORY_RUNPOD_MESSAGES);
+
+  return recent.map((entry) => {
+    const content = entry.content;
+    if (content.length <= MAX_GOD_MODE_HISTORY_CHARS_PER_MESSAGE) {
+      return { role: entry.role, content };
+    }
+
+    return {
+      role: entry.role,
+      content: `${content.slice(0, MAX_GOD_MODE_HISTORY_CHARS_PER_MESSAGE)}… [truncated for RunPod context budget]`,
+    };
+  });
 }
 
 async function loadGodModeChatHistory() {
@@ -1173,10 +1195,7 @@ function buildGodModeMessages(prompt, { webContext = null, mode = 'master-owner-
     ].join('\n\n');
   }
 
-  const priorTurns = sanitizeGodModeHistoryMessages(conversationHistory).map(({ role, content }) => ({
-    role,
-    content,
-  }));
+  const priorTurns = trimHistoryForRunPodContext(conversationHistory);
 
   return [{ role: 'system', content: systemContent }, ...priorTurns, { role: 'user', content: prompt }];
 }
@@ -1195,7 +1214,9 @@ function buildRunPodOpenAiPayload(prompt, options = {}) {
   return {
     model: 'dolphin-llama3',
     messages,
-    temperature: AI_TEMPERATURE,
+    temperature: RUNPOD_TEMPERATURE,
+    top_p: RUNPOD_TOP_P,
+    max_tokens: RUNPOD_MAX_COMPLETION_TOKENS,
     stream: true,
     stream_options: {
       include_usage: false,
@@ -2136,7 +2157,10 @@ async function enforceClientRules(req, res, next) {
 async function executeMasterOwnerChat(res, finalPrompt, { adminDeepScrape = false } = {}) {
   const isAdminDeepScrape = adminDeepScrape === true || adminDeepScrape === 'true';
   const conversationHistory = await loadGodModeChatHistory();
-  console.log(`[god-history] Reloaded ${conversationHistory.length} prior MASTER_OWNER message(s).`);
+  const runPodHistory = trimHistoryForRunPodContext(conversationHistory);
+  console.log(
+    `[god-history] Reloaded ${conversationHistory.length} stored message(s); sending ${runPodHistory.length} recent turn(s) to RunPod.`
+  );
 
   const masterStreamOptions = {
     uncensored: true,
