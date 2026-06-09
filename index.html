@@ -472,17 +472,28 @@
       return PRODUCTION_API_BASE.replace(/\/$/, '');
     }
 
+    function getClientEmail() {
+      const fromInput = (el.userEmail?.value || '').trim().toLowerCase();
+      if (fromInput) return fromInput;
+
+      const fromStorage = (localStorage.getItem(STORAGE_KEYS.email) || '').trim().toLowerCase();
+      if (fromStorage) return fromStorage;
+
+      return REGISTERED_EMAIL;
+    }
+
     function withRegisteredEmail(payload) {
-      return { ...payload, email: REGISTERED_EMAIL };
+      return { ...payload, email: getClientEmail() };
     }
 
     function getClientHeaders() {
+      const email = getClientEmail();
       const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
       return {
         'Content-Type': 'application/json',
-        'x-user-email': REGISTERED_EMAIL,
-        'X-Client-Email': REGISTERED_EMAIL,
-        'Client-Email': REGISTERED_EMAIL,
+        'x-user-email': email,
+        'X-Client-Email': email,
+        'Client-Email': email,
         'x-device-fingerprint': fingerprint,
       };
     }
@@ -1792,8 +1803,12 @@
     }
 
     async function createDeveloperApiKey() {
-      const email = (el.userEmail.value || '').trim();
-      const fingerprint = (el.deviceFingerprint.value || '').trim();
+      const email = getClientEmail();
+      const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
+
+      if (email && el.userEmail && !el.userEmail.value.trim()) {
+        el.userEmail.value = email;
+      }
 
       if (!email || !fingerprint) {
         showToast('Save your client email and device fingerprint first.', 'warn');
@@ -1805,8 +1820,13 @@
       try {
         const { response, payload } = await apiRequest('/api/user/generate-api-key', {
           method: 'POST',
-          headers: getClientHeaders(),
-          body: JSON.stringify({}),
+          headers: {
+            ...getClientHeaders(),
+            'x-user-email': email,
+            'X-Client-Email': email,
+            'Client-Email': email,
+          },
+          body: JSON.stringify({ email }),
         });
 
         if (!response.ok) {
