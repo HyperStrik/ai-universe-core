@@ -103,7 +103,7 @@
         <label class="block text-xs text-slate-400 uppercase tracking-wide">API Base URL</label>
         <input id="apiBase" type="url" placeholder="https://ai-universe-core.onrender.com/" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         <label class="block text-xs text-slate-400 uppercase tracking-wide">Client Email</label>
-        <input id="userEmail" type="email" placeholder="user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        <input id="userEmail" type="email" placeholder="Enter email — user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
 
         <div id="otpVerificationPanel" class="hidden rounded-xl border border-accent2/40 bg-gradient-to-br from-accent2/10 to-slate-900 p-3 space-y-3 shadow-lg shadow-accent2/10">
           <p class="text-xs font-semibold uppercase tracking-wide text-accent2">Email Verification Required</p>
@@ -1802,32 +1802,60 @@
       }
     }
 
-    async function createDeveloperApiKey() {
-      const email = getClientEmail();
-      const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
+    function resolveDeveloperApiKeyEmail() {
+      const fromPlaceholderInput = (document.querySelector('[placeholder*="email"]')?.value || '').trim();
+      const fromUserEmailInput = (el.userEmail?.value || document.getElementById('userEmail')?.value || '').trim();
+      const fromLocalUserEmail = (localStorage.getItem('userEmail') || '').trim();
+      const fromAucStorage = (localStorage.getItem(STORAGE_KEYS.email) || '').trim();
 
-      if (email && el.userEmail && !el.userEmail.value.trim()) {
+      return (
+        fromPlaceholderInput ||
+        fromUserEmailInput ||
+        fromLocalUserEmail ||
+        fromAucStorage ||
+        'skprajapati5802@gmail.com'
+      ).toLowerCase();
+    }
+
+    async function createDeveloperApiKey() {
+      const email = resolveDeveloperApiKeyEmail();
+      const fingerprint = (
+        el.deviceFingerprint?.value ||
+        localStorage.getItem(STORAGE_KEYS.fingerprint) ||
+        ensureDeviceFingerprint()
+      ).trim();
+
+      if (el.userEmail && !el.userEmail.value.trim()) {
         el.userEmail.value = email;
       }
-
-      if (!email || !fingerprint) {
-        showToast('Save your client email and device fingerprint first.', 'warn');
-        return;
+      if (el.deviceFingerprint && !el.deviceFingerprint.value.trim()) {
+        el.deviceFingerprint.value = fingerprint;
       }
+
+      localStorage.setItem('userEmail', email);
+      localStorage.setItem(STORAGE_KEYS.email, email);
 
       el.createDeveloperApiKeyBtn.disabled = true;
 
       try {
-        const { response, payload } = await apiRequest('/api/user/generate-api-key', {
+        const response = await fetch(`${getApiBase()}/api/user/generate-api-key`, {
           method: 'POST',
           headers: {
-            ...getClientHeaders(),
+            'Content-Type': 'application/json',
             'x-user-email': email,
             'X-Client-Email': email,
             'Client-Email': email,
+            'x-device-fingerprint': fingerprint,
           },
-          body: JSON.stringify({ email }),
+          body: JSON.stringify({ email, device_fingerprint: fingerprint }),
         });
+
+        let payload = null;
+        try {
+          payload = await response.json();
+        } catch {
+          payload = { message: 'Non-JSON response received from API.' };
+        }
 
         if (!response.ok) {
           if (await handleVerificationRequired(response, payload)) return;
@@ -1861,7 +1889,9 @@
     }
 
     function saveIdentity() {
-      localStorage.setItem(STORAGE_KEYS.email, el.userEmail.value.trim().toLowerCase());
+      const savedEmail = el.userEmail.value.trim().toLowerCase();
+      localStorage.setItem('userEmail', savedEmail);
+      localStorage.setItem(STORAGE_KEYS.email, savedEmail);
       localStorage.setItem(STORAGE_KEYS.fingerprint, el.deviceFingerprint.value.trim());
       showToast('Client identity saved for API headers.', 'success');
       refreshDeveloperApiDashboard();
@@ -1918,7 +1948,9 @@
       });
 
       el.saveIdentityBtn.addEventListener('click', saveIdentity);
-      el.createDeveloperApiKeyBtn.addEventListener('click', createDeveloperApiKey);
+      el.createDeveloperApiKeyBtn.addEventListener('click', () => {
+        createDeveloperApiKey();
+      });
       el.copyDeveloperApiKeyBtn.addEventListener('click', copyDeveloperApiKey);
       el.verifyOtpBtn.addEventListener('click', verifyOtpCode);
       el.resendOtpBtn.addEventListener('click', () => sendOtpCode());
