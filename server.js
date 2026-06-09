@@ -8,6 +8,7 @@ require('dotenv').config({ quiet: true });
 
 const express = require('express');
 const cors = require('cors');
+const crypto = require('crypto');
 const path = require('path');
 const fse = require('fs-extra');
 const archiver = require('archiver');
@@ -82,6 +83,10 @@ const NVIDIA_API_KEY = stripQuotes(process.env.NVIDIA_API_KEY || process.env.RUN
 
 const USER_COLUMNS =
   'id, email, is_email_verified, device_fingerprint, role, allowed_info_scope, created_at, credits_used_today, credits_reset_date, whatsapp_shares_today, whatsapp_share_day, whatsapp_bonus_awarded_date';
+const USER_API_COLUMNS = `${USER_COLUMNS}, api_key, token_balance, tokens_used_lifetime`;
+const COMMERCIAL_MIN_TOKEN_RESERVE = 64;
+const COMMERCIAL_TOKEN_CREDIT_FALLBACK_RATIO = 500;
+const COMMERCIAL_DEFAULT_MODEL = 'dolphin-llama3';
 
 // ---------------------------------------------------------------------------
 // Supabase — persistent PostgreSQL extraction layer
@@ -258,72 +263,6 @@ function getTaskQueue() {
   return taskQueue;
 }
 
-async function executeTelegramScrapeJob(data) {
-  const { targetGroupId, jobId } = data;
-  const startedAt = Date.now();
-  console.log(`[worker:telegram] Starting scrape job ${jobId} for group ${targetGroupId}`);
-
-  const simulatedMembers = [];
-  for (let index = 0; index < 25; index += 1) {
-    simulatedMembers.push({
-      member_id: `tg_member_${index + 1}`,
-      username: `signal_user_${index + 1}`,
-      group_id: targetGroupId,
-    });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-  }
-
-  const durationMs = Date.now() - startedAt;
-  console.log(
-    `[worker:telegram] Completed scrape job ${jobId} — ${simulatedMembers.length} members in ${durationMs}ms`
-  );
-
-  return {
-    job_id: jobId,
-    target_group_id: targetGroupId,
-    members_scraped: simulatedMembers.length,
-    members: simulatedMembers.slice(0, 5),
-    duration_ms: durationMs,
-    status: 'completed',
-  };
-}
-
-async function executeB2BOutreachJob(data) {
-  const { campaignName, audienceSegment, dryRun, jobId } = data;
-  const startedAt = Date.now();
-  console.log(`[worker:outreach] Starting outreach job ${jobId} campaign=${campaignName}`);
-
-  const outreachTargets = [
-    'enterprise_leads_tier_a',
-    'saas_founders_eu',
-    'ai_platform_buyers',
-    'devtool_procurement',
-  ];
-
-  const dispatched = outreachTargets.map((segment, index) => ({
-    segment,
-    audience: audienceSegment || segment,
-    channel: index % 2 === 0 ? 'email_sequence' : 'linkedin_sequence',
-    dry_run: Boolean(dryRun),
-    status: dryRun ? 'simulated' : 'queued_for_delivery',
-  }));
-
-  await new Promise((resolve) => setTimeout(resolve, 120));
-
-  const durationMs = Date.now() - startedAt;
-  console.log(`[worker:outreach] Completed outreach job ${jobId} in ${durationMs}ms`);
-
-  return {
-    job_id: jobId,
-    campaign_name: campaignName || 'default_growth_wave',
-    audience_segment: audienceSegment || 'enterprise_leads_tier_a',
-    dry_run: Boolean(dryRun),
-    dispatched,
-    duration_ms: durationMs,
-    status: 'completed',
-  };
-}
-
 function startBackgroundWorkers() {
   const connection = parseRedisConnection();
   if (!connection) {
@@ -334,12 +273,6 @@ function startBackgroundWorkers() {
   taskWorker = new Worker(
     'heavy-tasks',
     async (job) => {
-      if (job.name === 'telegram-scrape') {
-        return executeTelegramScrapeJob(job.data);
-      }
-      if (job.name === 'b2b-outreach') {
-        return executeB2BOutreachJob(job.data);
-      }
       throw new Error(`Unknown heavy task: ${job.name}`);
     },
     { connection, concurrency: 2 }
@@ -1037,6 +970,162 @@ async function findUserByEmail(email) {
   return data || null;
 }
 
+function generateClientApiKey() {
+  return `sk_client_${crypto.randomBytes(24).toString('hex')}`;
+}
+
+function maskClientApiKey(apiKey) {
+  const value = String(apiKey || '').trim();
+  if (!value) return '';
+  if (value.length <= 16) return `${value.slice(0, 4)}${'•'.repeat(Math.max(4, value.length - 4))}`;
+  return `${value.slice(0, 12)}${'•'.repeat(10)}${value.slice(-4)}`;
+}
+
+async function fetchUserDeveloperApiProfile(userId) {
+  const { data, error } = await getSupabase()
+    .from('users')
+    .select('api_key, token_balance, tokens_used_lifetime')
+    .eq('id', userId)
+    .maybeSingle();
+
+  if (error) {
+    if (/api_key|token_balance|tokens_used_lifetime|column/i.test(error.message || '')) {
+      return { api_key: null, token_balance: null, tokens_used_lifetime: 0 };
+    }
+    throw error;
+  }
+
+  return data || { api_key: null, token_balance: null, tokens_used_lifetime: 0 };
+}
+
+async function assignClientApiKeyForUser(user) {
+  const maxAttempts = 5;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const apiKey = generateClientApiKey();
+    const { data, error } = await getSupabase()
+      .from('users')
+      .update({ api_key: apiKey })
+      .eq('id', user.id)
+      .select(USER_API_COLUMNS)
+      .single();
+
+    if (!error) {
+      return { apiKey, user: data };
+    }
+
+    if (error.code === '23505') continue;
+    if (/api_key|column/i.test(error.message || '')) {
+      throw new Error('Developer API columns are missing. Run schema.sql migrations in Supabase.');
+    }
+    throw error;
+  }
+
+  throw new Error('Failed to generate a unique client API key. Please retry.');
+}
+
+async function findUserByApiKey(apiKey) {
+  if (!apiKey) return null;
+
+  const { data, error } = await getSupabase()
+    .from('users')
+    .select(USER_API_COLUMNS)
+    .eq('api_key', apiKey)
+    .maybeSingle();
+
+  if (error) {
+    if (/api_key|token_balance|tokens_used_lifetime|column/i.test(error.message || '')) {
+      console.error('[commercial-api] Paid API columns missing in users table. Run schema.sql migrations.');
+      return null;
+    }
+    throw error;
+  }
+
+  return data || null;
+}
+
+async function resolvePaidUserTokenBalance(user) {
+  if (!user) return 0;
+  if (user.token_balance != null && user.token_balance !== undefined) {
+    return Math.max(0, Number(user.token_balance) || 0);
+  }
+
+  const refreshed = await resetDailyCountersIfNeeded(user);
+  const limit = dailyCreditLimit(refreshed);
+  const used = await getDailyCreditsUsed(refreshed.email);
+  return Math.max(0, (limit - used) * COMMERCIAL_TOKEN_CREDIT_FALLBACK_RATIO);
+}
+
+async function deductUserTokenBalance(user, usage, requestId) {
+  const promptTokens = Math.max(0, Number(usage.promptTokens) || 0);
+  const completionTokens = Math.max(0, Number(usage.completionTokens) || 0);
+  const totalTokens = promptTokens + completionTokens;
+
+  if (totalTokens <= 0) {
+    return { deducted: 0, balanceAfter: await resolvePaidUserTokenBalance(user) };
+  }
+
+  if (user.token_balance != null && user.token_balance !== undefined) {
+    const balanceBefore = Math.max(0, Number(user.token_balance) || 0);
+    const balanceAfter = Math.max(0, balanceBefore - totalTokens);
+
+    const { error: updateError } = await getSupabase()
+      .from('users')
+      .update({
+        token_balance: balanceAfter,
+        tokens_used_lifetime: Math.max(0, Number(user.tokens_used_lifetime) || 0) + totalTokens,
+      })
+      .eq('id', user.id);
+
+    if (updateError) throw updateError;
+
+    await recordApiTokenLedgerEntry({
+      userId: user.id,
+      requestId,
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      balanceBefore,
+      balanceAfter,
+    }).catch((err) => {
+      console.warn('[commercial-api] Token ledger write skipped:', err.message);
+    });
+
+    return { deducted: totalTokens, balanceAfter, balanceBefore };
+  }
+
+  const creditCost = Math.max(1, Math.ceil(totalTokens / COMMERCIAL_TOKEN_CREDIT_FALLBACK_RATIO));
+  const used = await incrementDailyCredits(user.email);
+  await syncCreditConsumption(user, used);
+  return {
+    deducted: totalTokens,
+    balanceAfter: Math.max(0, (dailyCreditLimit(user) - used) * COMMERCIAL_TOKEN_CREDIT_FALLBACK_RATIO),
+    creditsConsumed: creditCost,
+    fallbackCredits: true,
+  };
+}
+
+async function recordApiTokenLedgerEntry(entry) {
+  const { error } = await getSupabase().from('api_token_ledger').insert({
+    user_id: entry.userId,
+    request_id: entry.requestId,
+    prompt_tokens: entry.promptTokens,
+    completion_tokens: entry.completionTokens,
+    total_tokens: entry.totalTokens,
+    balance_before: entry.balanceBefore,
+    balance_after: entry.balanceAfter,
+  });
+
+  if (error) {
+    if (/api_token_ledger|relation|column/i.test(error.message || '')) {
+      return false;
+    }
+    throw error;
+  }
+
+  return true;
+}
+
 async function resetDailyCountersIfNeeded(user) {
   const today = todayKey();
   const resetDate = user.credits_reset_date
@@ -1680,6 +1769,121 @@ function writeSseFrame(res, payload) {
   res.write(`data: ${JSON.stringify(payload)}\n\n`);
 }
 
+function sendOpenAiError(res, status, code, message, extra = {}) {
+  return res.status(status).json({
+    error: {
+      message,
+      type: code,
+      code,
+      ...extra,
+    },
+  });
+}
+
+function createOpenAiStreamChunkId() {
+  return `chatcmpl-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function writeOpenAiStreamChunk(res, content, { model = COMMERCIAL_DEFAULT_MODEL, chunkId, finish = false } = {}) {
+  const payload = {
+    id: chunkId || createOpenAiStreamChunkId(),
+    object: 'chat.completion.chunk',
+    created: Math.floor(Date.now() / 1000),
+    model,
+    choices: [
+      {
+        index: 0,
+        delta: finish ? {} : { content: content || '' },
+        finish_reason: finish ? 'stop' : null,
+      },
+    ],
+  };
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function writeStreamPayload(res, payload, streamFormat, streamModel, chunkId) {
+  if (streamFormat === 'openai') {
+    if (payload.truncated) {
+      writeOpenAiStreamChunk(res, TRUNCATION_BADGE, { model: streamModel, chunkId });
+      return;
+    }
+    if (payload.content) {
+      writeOpenAiStreamChunk(res, payload.content, { model: streamModel, chunkId });
+    }
+    return;
+  }
+  writeSseFrame(res, payload);
+}
+
+function estimateTokensFromText(text) {
+  return Math.max(1, Math.ceil(String(text || '').length / 4));
+}
+
+function estimateMessagesTokenCost(messages) {
+  if (!Array.isArray(messages)) return 0;
+  return messages.reduce((sum, entry) => {
+    if (!entry || typeof entry.content !== 'string') return sum;
+    return sum + estimateTokensFromText(entry.content) + 4;
+  }, 0);
+}
+
+function extractCommercialApiKey(req) {
+  const auth = String(req.headers.authorization || '').trim();
+  if (auth.startsWith('Bearer ')) {
+    const bearer = auth.slice(7).trim();
+    if (bearer && bearer !== MASTER_ADMIN_KEY) return bearer;
+  }
+
+  const headerKey = String(req.headers['x-api-key'] || req.headers['x-commercial-api-key'] || '').trim();
+  if (headerKey && headerKey !== MASTER_ADMIN_KEY) return headerKey;
+
+  const bodyKey = String(req.body?.api_key || req.body?.apiKey || '').trim();
+  if (bodyKey && bodyKey !== MASTER_ADMIN_KEY) return bodyKey;
+
+  return '';
+}
+
+function parseOpenAiChatCompletionsBody(body) {
+  const messages = Array.isArray(body?.messages) ? body.messages : [];
+  const normalized = messages
+    .filter(
+      (entry) =>
+        entry &&
+        ['system', 'user', 'assistant'].includes(entry.role) &&
+        typeof entry.content === 'string' &&
+        entry.content.trim()
+    )
+    .map((entry) => ({ role: entry.role, content: entry.content.trim() }));
+
+  let prompt = '';
+  let conversationHistory = [];
+  let lastUserIndex = -1;
+
+  for (let index = normalized.length - 1; index >= 0; index -= 1) {
+    if (normalized[index].role === 'user') {
+      lastUserIndex = index;
+      break;
+    }
+  }
+
+  if (lastUserIndex >= 0) {
+    prompt = normalized[lastUserIndex].content;
+    conversationHistory = normalized.slice(0, lastUserIndex);
+  } else if (normalized.length) {
+    prompt = normalized[normalized.length - 1].content;
+    conversationHistory = normalized.slice(0, -1);
+  }
+
+  return {
+    messages: normalized,
+    prompt,
+    conversationHistory,
+    stream: body?.stream !== false,
+    model: typeof body?.model === 'string' && body.model.trim() ? body.model.trim() : COMMERCIAL_DEFAULT_MODEL,
+    maxTokens: Number(body?.max_tokens) > 0 ? Number(body.max_tokens) : null,
+  };
+}
+
 function tryParseJsonString(value) {
   if (value == null) return null;
   if (typeof value === 'object') return value;
@@ -1880,7 +2084,7 @@ function salvageUpstreamStreamBuffer(buffer) {
   return combined;
 }
 
-function emitWordLimitedContent(res, content, state) {
+function emitWordLimitedContent(res, content, state, streamFormat = 'legacy', streamModel = COMMERCIAL_DEFAULT_MODEL) {
   if (!content) return true;
 
   const segments = content.split(/(\s+)/);
@@ -1888,7 +2092,7 @@ function emitWordLimitedContent(res, content, state) {
     if (!segment) continue;
 
     if (/^\s+$/.test(segment)) {
-      writeSseFrame(res, { content: segment });
+      writeStreamPayload(res, { content: segment }, streamFormat, streamModel, state.openAiChunkId);
       state.emittedText += segment;
       continue;
     }
@@ -1898,11 +2102,11 @@ function emitWordLimitedContent(res, content, state) {
     }
 
     state.wordCount += 1;
-    writeSseFrame(res, { content: segment });
+    writeStreamPayload(res, { content: segment }, streamFormat, streamModel, state.openAiChunkId);
     state.emittedText += segment;
 
     if (state.wordCount >= MAX_RESPONSE_WORDS) {
-      writeSseFrame(res, { content: TRUNCATION_BADGE, truncated: true });
+      writeStreamPayload(res, { content: TRUNCATION_BADGE, truncated: true }, streamFormat, streamModel, state.openAiChunkId);
       state.truncated = true;
       return false;
     }
@@ -1919,6 +2123,8 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     applyWordLimit = false,
     conversationHistory = [],
     meta = {},
+    streamFormat = 'legacy',
+    responseModel = COMMERCIAL_DEFAULT_MODEL,
   } = options;
 
   const useRunPodOpenAi = shouldUseRunPodOpenAiRouting(options);
@@ -1991,25 +2197,29 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
   initSseHeaders(res);
   applyTrialInterceptHeaders(res, meta.trialIntercept || null);
 
-  writeSseFrame(res, {
-    type: 'meta',
-    role: meta.role || 'CLIENT',
-    model,
-    streaming: true,
-    routing_mode: useRunPodOpenAi
-      ? 'RUNPOD_OPENAI_SERVERLESS'
-      : isNvidiaServerlessMode()
-        ? 'SERVERLESS_NVIDIA'
-        : 'OLLAMA_TUNNEL',
-    trialEndingSoon: meta.trialIntercept?.trialEndingSoon || false,
-    timeLeftStr: meta.trialIntercept?.timeLeftStr || '',
-    msRemaining: meta.trialIntercept?.msRemaining ?? null,
-    mode: meta.responseMode || mode,
-    word_limit_applied: applyWordLimit,
-    max_words: applyWordLimit ? MAX_RESPONSE_WORDS : null,
-    censored: !uncensored,
-    credits_bypassed: meta.creditsBypassed || false,
-  });
+  const openAiChunkId = streamFormat === 'openai' ? createOpenAiStreamChunkId() : null;
+
+  if (streamFormat !== 'openai') {
+    writeSseFrame(res, {
+      type: 'meta',
+      role: meta.role || 'CLIENT',
+      model,
+      streaming: true,
+      routing_mode: useRunPodOpenAi
+        ? 'RUNPOD_OPENAI_SERVERLESS'
+        : isNvidiaServerlessMode()
+          ? 'SERVERLESS_NVIDIA'
+          : 'OLLAMA_TUNNEL',
+      trialEndingSoon: meta.trialIntercept?.trialEndingSoon || false,
+      timeLeftStr: meta.trialIntercept?.timeLeftStr || '',
+      msRemaining: meta.trialIntercept?.msRemaining ?? null,
+      mode: meta.responseMode || mode,
+      word_limit_applied: applyWordLimit,
+      max_words: applyWordLimit ? MAX_RESPONSE_WORDS : null,
+      censored: !uncensored,
+      credits_bypassed: meta.creditsBypassed || false,
+    });
+  }
 
   const allowWorkspaceFileWrites = uncensored === true;
   const clientOutputSanitizer = allowWorkspaceFileWrites ? null : createWorkspaceWriteStreamSanitizer();
@@ -2019,6 +2229,7 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     emittedText: '',
     truncated: false,
     finished: false,
+    openAiChunkId,
   };
 
   return new Promise((resolve, reject) => {
@@ -2027,12 +2238,21 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
 
     const finalize = (result) => {
       if (streamState.finished) return;
+
+      if (streamFormat === 'openai') {
+        writeOpenAiStreamChunk(res, '', {
+          model: responseModel,
+          chunkId: streamState.openAiChunkId,
+          finish: true,
+        });
+      }
+
       streamState.finished = true;
 
       if (!allowWorkspaceFileWrites && clientOutputSanitizer) {
         const flushed = clientOutputSanitizer.flush();
         if (flushed) {
-          writeSseFrame(res, { content: flushed });
+          writeStreamPayload(res, { content: flushed }, streamFormat, responseModel, streamState.openAiChunkId);
           streamState.emittedText += flushed;
         }
         const strippedCount = clientOutputSanitizer.getStrippedCount();
@@ -2072,10 +2292,10 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       if (!safeContent) return true;
 
       if (applyWordLimit) {
-        return emitWordLimitedContent(res, safeContent, streamState);
+        return emitWordLimitedContent(res, safeContent, streamState, streamFormat, responseModel);
       }
 
-      writeSseFrame(res, { content: safeContent });
+      writeStreamPayload(res, { content: safeContent }, streamFormat, responseModel, streamState.openAiChunkId);
       streamState.emittedText += safeContent;
       return true;
     };
@@ -2111,7 +2331,13 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
         rawBytesReceived,
         timeoutMs: streamRequestTimeoutMs || null,
       });
-      writeSseFrame(res, { content: fallbackMessage, providerEmptyStream: true });
+      writeStreamPayload(
+        res,
+        { content: fallbackMessage, providerEmptyStream: true },
+        streamFormat,
+        responseModel,
+        streamState.openAiChunkId
+      );
       streamState.emittedText = fallbackMessage;
     };
 
@@ -2212,6 +2438,214 @@ function authMiddleware(req, res, next) {
   }
   req.role = 'CLIENT';
   next();
+}
+
+async function commercialApiAuthMiddleware(req, res, next) {
+  if (isValidMasterOwnerKey(req)) {
+    applyMasterOwnerSession(req);
+    req.commercialAccess = {
+      tier: 'god_mode_owner',
+      metered: false,
+      uncensored: true,
+      bypassBalance: true,
+    };
+    console.log('[commercial-api] MASTER_OWNER God Mode bypass — uncapped free access.');
+    return next();
+  }
+
+  const apiKey = extractCommercialApiKey(req);
+  if (!apiKey) {
+    return sendOpenAiError(
+      res,
+      401,
+      'invalid_api_key',
+      'Commercial API key required. Provide Authorization: Bearer <api_key> or x-api-key header.'
+    );
+  }
+
+  const dbHealthy = await verifyDatabaseHealth('commercial-api-auth');
+  if (!dbHealthy) {
+    return sendOpenAiError(
+      res,
+      503,
+      'database_unavailable',
+      'Supabase PostgreSQL is required for paid API metering and is currently unreachable.'
+    );
+  }
+
+  try {
+    const user = await findUserByApiKey(apiKey);
+    if (!user) {
+      return sendOpenAiError(res, 401, 'invalid_api_key', 'Invalid commercial API key.');
+    }
+
+    if (!user.is_email_verified) {
+      return sendOpenAiError(
+        res,
+        403,
+        'account_not_verified',
+        'Paid API access requires a verified account. Complete email verification first.'
+      );
+    }
+
+    const refreshedUser = await resetDailyCountersIfNeeded(user);
+    const tokenBalance = await resolvePaidUserTokenBalance(refreshedUser);
+    const isUnlimitedRole = refreshedUser.role === 'OVERRIDE_UNLIMITED';
+
+    req.role = isUnlimitedRole ? 'OVERRIDE_UNLIMITED' : 'CLIENT';
+    req.user = refreshedUser;
+    req.effectiveRole = req.role;
+    req.commercialAccess = {
+      tier: 'paid_public',
+      metered: !isUnlimitedRole,
+      uncensored: false,
+      bypassBalance: isUnlimitedRole,
+      tokenBalance,
+      apiKeyId: refreshedUser.id,
+    };
+
+    if (accountAgeDays(refreshedUser.created_at) > TRIAL_DAYS && !isUnlimitedRole) {
+      return sendOpenAiError(
+        res,
+        402,
+        'trial_expired',
+        'Free trial ended. Upgrade your plan to continue using the commercial API.',
+        { redirect: PRICING_REDIRECT }
+      );
+    }
+
+    return next();
+  } catch (err) {
+    console.error('[commercial-api] Auth failed:', err.message);
+    return sendOpenAiError(res, 500, 'commercial_auth_failed', 'Failed to authenticate commercial API request.');
+  }
+}
+
+async function handleV1ChatCompletions(req, res) {
+  const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const parsedBody = parseOpenAiChatCompletionsBody(req.body || {});
+
+  if (!parsedBody.prompt) {
+    return sendOpenAiError(res, 400, 'invalid_request', 'messages must include at least one user message.');
+  }
+
+  let finalPrompt = parsedBody.prompt;
+  const wantsStream = parsedBody.stream !== false;
+  const responseModel = parsedBody.model || COMMERCIAL_DEFAULT_MODEL;
+
+  if (isMasterOwnerChatRequest(req)) {
+    applyMasterOwnerSession(req);
+    console.log('[commercial-api] God Mode owner streaming via /api/v1/chat/completions');
+
+    if (!wantsStream) {
+      return sendOpenAiError(
+        res,
+        400,
+        'stream_required',
+        'God Mode /api/v1/chat/completions requires stream=true for OpenAI-compatible SSE output.'
+      );
+    }
+
+    const webContext = await fetchWebSearchSnippets(finalPrompt);
+    const conversationHistory = await loadGodModeChatHistory();
+    const mergedHistory = [
+      ...trimHistoryForRunPodContext(conversationHistory),
+      ...trimHistoryForRunPodContext(parsedBody.conversationHistory),
+    ];
+
+    const streamResult = await streamAiCompletionToClient(res, finalPrompt, {
+      uncensored: true,
+      applyWordLimit: false,
+      useRunPodOpenAiRouting: true,
+      webContext,
+      mode: 'master-owner-direct',
+      conversationHistory: mergedHistory,
+      streamFormat: 'openai',
+      responseModel,
+      meta: {
+        role: 'MASTER_OWNER',
+        responseMode: 'commercial_god_mode_v1',
+        creditsBypassed: true,
+      },
+    });
+
+    if (streamResult.emittedText?.trim()) {
+      await appendGodModeChatTurn(finalPrompt, streamResult.emittedText);
+      await extractAndWriteGodModeWorkspaceFiles(streamResult.emittedText, {
+        allowWorkspaceFileWrites: true,
+      });
+    }
+    return;
+  }
+
+  const access = req.commercialAccess || {};
+  const promptTokens = estimateMessagesTokenCost(parsedBody.messages);
+  const reservedTokens = promptTokens + COMMERCIAL_MIN_TOKEN_RESERVE;
+
+  if (access.metered && !access.bypassBalance && access.tokenBalance < reservedTokens) {
+    return sendOpenAiError(
+      res,
+      402,
+      'insufficient_token_balance',
+      'Insufficient token balance for this request.',
+      {
+        token_balance: access.tokenBalance,
+        required_minimum: reservedTokens,
+        prompt_tokens_estimated: promptTokens,
+      }
+    );
+  }
+
+  const scopeViolation = detectScopeViolation(finalPrompt, req.user.allowed_info_scope);
+  if (scopeViolation) {
+    return sendOpenAiError(res, 403, 'scope_violation', scopeViolation);
+  }
+
+  if (/<<<AI_WORKSPACE_WRITE/i.test(finalPrompt)) {
+    finalPrompt = stripWorkspaceWriteBlocksFromText(finalPrompt).trim();
+  }
+
+  finalPrompt = buildScopedPrompt(finalPrompt, req.user.allowed_info_scope);
+  const webContext = await fetchWebSearchSnippets(parsedBody.prompt);
+
+  if (!wantsStream) {
+    return sendOpenAiError(
+      res,
+      400,
+      'stream_required',
+      'This commercial endpoint currently requires stream=true for token-metered live responses.'
+    );
+  }
+
+  const streamResult = await streamAiCompletionToClient(res, finalPrompt, {
+    uncensored: false,
+    webContext,
+    mode: 'client-silent',
+    applyWordLimit: req.effectiveRole !== 'OVERRIDE_UNLIMITED',
+    conversationHistory: trimHistoryForRunPodContext(parsedBody.conversationHistory),
+    streamFormat: 'openai',
+    responseModel,
+    meta: {
+      role: req.effectiveRole,
+      responseMode: 'commercial_paid_v1',
+      creditsBypassed: req.effectiveRole === 'OVERRIDE_UNLIMITED',
+      trialIntercept: getTrialEndingIntercept(req.user),
+      requestId,
+    },
+  });
+
+  if (access.metered && streamResult.completed !== false) {
+    const completionTokens = estimateTokensFromText(streamResult.emittedText);
+    const deduction = await deductUserTokenBalance(req.user, {
+      promptTokens,
+      completionTokens,
+      requestId,
+    });
+
+    console.log(
+      `[commercial-api] Metered usage for ${req.user.email}: prompt=${promptTokens} completion=${completionTokens} deducted=${deduction.deducted} balance_after=${deduction.balanceAfter}`
+    );
+  }
 }
 
 async function enforceClientRulesAsync(req, res) {
@@ -2624,17 +3058,113 @@ app.post('/api/verify-otp', authMiddleware, async (req, res) => {
 
 app.get('/api/user/session', authMiddleware, handleGodModeSession, godModeBypassClientRules, enforceClientRules, async (req, res) => {
   const intercept = getTrialEndingIntercept(req.user);
+  const creditsUsed = req.creditsUsed ?? (await getDailyCreditsUsed(req.user.email));
+  const creditLimit = req.creditLimit ?? dailyCreditLimit(req.user);
+  const developerProfile = await fetchUserDeveloperApiProfile(req.user.id);
+  const tokenBalance = await resolvePaidUserTokenBalance({
+    ...req.user,
+    token_balance: developerProfile.token_balance,
+  });
+
   res.json({
     email: req.user.email,
     role: req.effectiveRole,
     trialEndingSoon: intercept.trialEndingSoon,
     timeLeftStr: intercept.timeLeftStr,
     msRemaining: intercept.msRemaining,
-    creditLimit: req.creditLimit ?? dailyCreditLimit(req.user),
-    creditsUsed: req.creditsUsed ?? (await getDailyCreditsUsed(req.user.email)),
+    creditLimit,
+    creditsUsed,
+    creditsRemaining: Math.max(0, creditLimit - creditsUsed),
     trialDays: TRIAL_DAYS,
     accountAgeDays: accountAgeDays(req.user.created_at),
+    developerApi: {
+      hasApiKey: Boolean(developerProfile.api_key),
+      apiKeyMasked: developerProfile.api_key ? maskClientApiKey(developerProfile.api_key) : null,
+      tokenBalance,
+      tokensUsedLifetime: Number(developerProfile.tokens_used_lifetime) || 0,
+      commercialEndpoint: '/api/v1/chat/completions',
+    },
   });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/user/generate-api-key — self-service sk_client_* keys (public users)
+// Secure flow: authMiddleware → enforceClientRules → verified client only → crypto key
+// ---------------------------------------------------------------------------
+
+async function handleGenerateClientApiKey(req, res) {
+  if (req.role === 'MASTER_OWNER' || isValidMasterOwnerKey(req)) {
+    return sendError(
+      res,
+      403,
+      'MASTER_OWNER_EXEMPT',
+      'God Mode owners use MASTER_ADMIN_KEY. Client developer keys are for public paid users only.'
+    );
+  }
+
+  if (!req.user?.id) {
+    return sendError(res, 401, 'AUTH_REQUIRED', 'Verified client session is required to generate an API key.');
+  }
+
+  if (!req.user.is_email_verified) {
+    return sendError(
+      res,
+      403,
+      'VERIFICATION_REQUIRED',
+      'Email verification is required before generating a developer API key.',
+      { verificationRequired: true }
+    );
+  }
+
+  try {
+    const { apiKey, user: updatedUser } = await assignClientApiKeyForUser(req.user);
+    const tokenBalance = await resolvePaidUserTokenBalance(updatedUser);
+    const creditsUsed = req.creditsUsed ?? (await getDailyCreditsUsed(updatedUser.email));
+    const creditLimit = req.creditLimit ?? dailyCreditLimit(updatedUser);
+
+    console.log(
+      `[developer-api] Issued new client API key for ${updatedUser.email} (prefix ${apiKey.slice(0, 12)}…)`
+    );
+
+    return res.json({
+      success: true,
+      message: 'New secret API key generated. Copy it now — you will not see the full key again.',
+      apiKey,
+      apiKeyMasked: maskClientApiKey(apiKey),
+      tokenBalance,
+      creditsUsed,
+      creditLimit,
+      creditsRemaining: Math.max(0, creditLimit - creditsUsed),
+      tokensUsedLifetime: Number(updatedUser.tokens_used_lifetime) || 0,
+      commercialEndpoint: '/api/v1/chat/completions',
+      keyPrefix: 'sk_client_',
+      createdAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error('[developer-api/generate-api-key]', err.message);
+    return sendError(res, 500, 'API_KEY_GENERATION_FAILED', err.message || 'Failed to generate API key.');
+  }
+}
+
+app.post('/api/user/generate-api-key', authMiddleware, enforceClientRules, handleGenerateClientApiKey);
+
+app.post('/api/v1/chat/completions', commercialApiAuthMiddleware, async (req, res) => {
+  try {
+    await handleV1ChatCompletions(req, res);
+  } catch (err) {
+    console.error('[commercial-api/v1/chat/completions]', err.message);
+    if (!res.headersSent) {
+      return sendOpenAiError(res, 500, 'chat_completion_failed', err.message || 'Chat completion failed.');
+    }
+    if (!res.writableEnded) {
+      writeOpenAiStreamChunk(res, `\n[error] ${err.message || 'Chat completion failed.'}`, {
+        model: COMMERCIAL_DEFAULT_MODEL,
+        finish: true,
+      });
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  }
 });
 
 app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res) => {
@@ -2949,74 +3479,6 @@ app.post('/api/factory/write', authMiddleware, async (req, res) => {
   } catch (err) {
     console.error('[factory]', err.message);
     sendError(res, 500, 'FACTORY_WRITE_FAILED', err.message || 'Failed to write file.');
-  }
-});
-
-app.post('/api/admin/scrape-telegram', authMiddleware, async (req, res) => {
-  if (req.role !== 'MASTER_OWNER') {
-    return sendError(res, 403, 'MASTER_ONLY', 'Admin endpoints require MASTER_OWNER privileges.');
-  }
-
-  const { targetGroupId } = req.body || {};
-  if (!targetGroupId || !String(targetGroupId).trim()) {
-    return sendError(res, 400, 'GROUP_ID_REQUIRED', 'targetGroupId is required.');
-  }
-
-  try {
-    const groupId = String(targetGroupId).trim();
-    const job = await getTaskQueue().add('telegram-scrape', {
-      targetGroupId: groupId,
-      jobId: `tg_scrape_${Date.now()}`,
-      requestedAt: new Date().toISOString(),
-    });
-
-    res.json({
-      success: true,
-      module: 'TelegramMemberScraperSuite',
-      job_id: job.id,
-      target_group_id: groupId,
-      status: 'queued',
-      message: `Telegram scrape job queued for group ${groupId}`,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error('[admin/scrape-telegram]', err.message);
-    sendError(res, 503, 'WORKER_QUEUE_UNAVAILABLE', 'Background worker queue is unavailable.');
-  }
-});
-
-app.post('/api/admin/trigger-outreach', authMiddleware, async (req, res) => {
-  if (req.role !== 'MASTER_OWNER') {
-    return sendError(res, 403, 'MASTER_ONLY', 'Admin endpoints require MASTER_OWNER privileges.');
-  }
-
-  const { campaignName, audienceSegment, dryRun } = req.body || {};
-
-  try {
-    const job = await getTaskQueue().add('b2b-outreach', {
-      campaignName: campaignName || 'default_growth_wave',
-      audienceSegment: audienceSegment || 'enterprise_leads_tier_a',
-      dryRun: Boolean(dryRun),
-      jobId: `outreach_${Date.now()}`,
-      requestedAt: new Date().toISOString(),
-    });
-
-    res.json({
-      success: true,
-      module: 'B2BOutreachEngineDispatcher',
-      job_id: job.id,
-      status: 'queued',
-      message: 'B2B outreach automation pipeline queued in BullMQ worker',
-      configuration: {
-        campaign_name: campaignName || 'default_growth_wave',
-        audience_segment: audienceSegment || 'enterprise_leads_tier_a',
-        dry_run: Boolean(dryRun),
-      },
-      timestamp: new Date().toISOString(),
-    });
-  } catch (err) {
-    console.error('[admin/trigger-outreach]', err.message);
-    sendError(res, 503, 'WORKER_QUEUE_UNAVAILABLE', 'Background worker queue is unavailable.');
   }
 });
 
