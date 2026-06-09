@@ -71,6 +71,7 @@
     .god-file-item { cursor: pointer; }
     .god-file-item.active { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
     .god-terminal-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .god-terminal-line span { white-space: pre-wrap; }
     #godMonacoEditor { width: 100%; height: 100%; min-height: 280px; }
     @media (max-width: 1024px) {
       .god-workspace-grid { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
@@ -288,9 +289,14 @@
 
           <div class="god-workspace-grid flex-1 min-h-0">
             <aside class="border-r border-edge bg-[#0d1117] flex flex-col min-h-0">
-              <div class="px-3 py-2 border-b border-edge flex items-center justify-between">
-                <span class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Explorer</span>
-                <button id="refreshGodFilesBtn" type="button" class="text-[10px] text-accent2 hover:text-blue-300">Refresh</button>
+              <div class="px-3 py-2 border-b border-edge space-y-2">
+                <button id="downloadGodProjectBtn" type="button" class="w-full rounded-lg bg-accent2/20 hover:bg-accent2/30 border border-accent2/40 text-accent2 text-[11px] font-semibold px-3 py-2 transition-colors">
+                  ⬇ Download Project (.zip)
+                </button>
+                <div class="flex items-center justify-between">
+                  <span class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Explorer</span>
+                  <button id="refreshGodFilesBtn" type="button" class="text-[10px] text-accent2 hover:text-blue-300">Refresh</button>
+                </div>
               </div>
               <div id="godFileExplorer" class="chat-scroll flex-1 overflow-y-auto p-2 text-xs text-slate-300 space-y-0.5"></div>
             </aside>
@@ -304,8 +310,12 @@
                 <div id="godMonacoEditor" class="flex-1 min-h-0"></div>
               </div>
               <div class="flex flex-col min-h-0 bg-black">
-                <div class="px-3 py-1.5 border-b border-edge bg-[#0a0a0a] text-[10px] uppercase tracking-widest text-slate-500">Terminal</div>
-                <pre id="godTerminal" class="god-terminal-line chat-scroll flex-1 overflow-y-auto p-3 text-[11px] text-emerald-400 whitespace-pre-wrap"></pre>
+                <div class="px-3 py-1.5 border-b border-edge bg-[#0a0a0a] flex items-center gap-2">
+                  <span class="text-[10px] uppercase tracking-widest text-slate-500 shrink-0">Terminal</span>
+                  <input id="godTerminalInput" type="text" placeholder="node workspace/app.js" class="flex-1 min-w-0 rounded bg-black border border-edge px-2 py-1 text-[11px] text-emerald-300 focus:outline-none focus:ring-1 focus:ring-accent2 font-mono" />
+                  <button id="godTerminalRunBtn" type="button" class="shrink-0 text-[10px] px-2.5 py-1 rounded border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 font-semibold">Run</button>
+                </div>
+                <pre id="godTerminal" class="god-terminal-line chat-scroll flex-1 overflow-y-auto p-3 text-[11px] whitespace-pre-wrap"></pre>
               </div>
             </section>
 
@@ -369,6 +379,7 @@
         activeFile: null,
         treeEntries: [],
         monacoReady: false,
+        runInProgress: false,
       },
     };
 
@@ -416,8 +427,11 @@
       godDirectChatSendBtn: document.getElementById('godDirectChatSendBtn'),
       godFileExplorer: document.getElementById('godFileExplorer'),
       refreshGodFilesBtn: document.getElementById('refreshGodFilesBtn'),
+      downloadGodProjectBtn: document.getElementById('downloadGodProjectBtn'),
       godMonacoTab: document.getElementById('godMonacoTab'),
       godTerminal: document.getElementById('godTerminal'),
+      godTerminalInput: document.getElementById('godTerminalInput'),
+      godTerminalRunBtn: document.getElementById('godTerminalRunBtn'),
       toggleGodOpsBtn: document.getElementById('toggleGodOpsBtn'),
       godOpsPanel: document.getElementById('godOpsPanel'),
       toastHost: document.getElementById('toastHost'),
@@ -506,13 +520,23 @@
       }
     }
 
+    function appendGodTerminalRaw(text, stream = 'stdout') {
+      if (!el.godTerminal || text == null || text === '') return;
+      const colorClass =
+        stream === 'stderr' ? 'text-red-400' : stream === 'system' ? 'text-slate-400' : 'text-emerald-400';
+      const span = document.createElement('span');
+      span.className = colorClass;
+      span.textContent = text;
+      el.godTerminal.appendChild(span);
+      el.godTerminal.scrollTop = el.godTerminal.scrollHeight;
+    }
+
     function appendGodTerminalLog(message, tone) {
       if (!el.godTerminal) return;
       const stamp = new Date().toLocaleTimeString();
       const prefix = tone === 'error' ? '[ERR]' : tone === 'warn' ? '[WARN]' : '[LOG]';
-      const line = `${stamp} ${prefix} ${message}\n`;
-      el.godTerminal.textContent += line;
-      el.godTerminal.scrollTop = el.godTerminal.scrollHeight;
+      const stream = tone === 'error' ? 'stderr' : tone === 'warn' ? 'system' : 'stdout';
+      appendGodTerminalRaw(`${stamp} ${prefix} ${message}\n`, stream);
     }
 
     function detectMonacoLanguage(filePath) {
@@ -781,6 +805,180 @@
       } catch (error) {
         setGodMonacoContent(`// ${filePath}\n// ${error.message}\n`, filePath);
         appendGodTerminalLog(`Explorer read failed: ${error.message}`, 'warn');
+      }
+    }
+
+    async function downloadGodWorkspaceProject() {
+      if (!state.adminUnlocked) {
+        showToast('Unlock God Mode with a valid admin key first.', 'warn');
+        return;
+      }
+
+      const adminKey = (el.adminKey.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
+      el.downloadGodProjectBtn.disabled = true;
+      appendGodTerminalLog('Building AI_Workspace project zip…', 'info');
+
+      try {
+        const response = await fetch(`${getApiBase()}/api/god-workspace/download`, {
+          method: 'GET',
+          headers: {
+            'x-master-admin-key': adminKey,
+            Authorization: adminKey ? `Bearer ${adminKey}` : '',
+          },
+        });
+
+        if (!response.ok) {
+          let message = `Download failed (${response.status})`;
+          try {
+            const payload = await response.json();
+            message = payload.message || message;
+          } catch {
+            // non-json error body
+          }
+          throw new Error(message);
+        }
+
+        const blob = await response.blob();
+        const disposition = response.headers.get('content-disposition') || '';
+        const match = disposition.match(/filename="?([^"]+)"?/i);
+        const filename = match?.[1] || `AI_Workspace-${Date.now()}.zip`;
+
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        anchor.download = filename;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+
+        appendGodTerminalLog(`Downloaded ${filename} (${blob.size} bytes)`, 'info');
+        showToast(`Project downloaded: ${filename}`, 'success');
+      } catch (error) {
+        appendGodTerminalLog(`Zip download failed: ${error.message}`, 'error');
+        showToast(error.message || 'Failed to download project zip.', 'error');
+      } finally {
+        el.downloadGodProjectBtn.disabled = false;
+      }
+    }
+
+    async function runGodWorkspaceCommand(commandOverride) {
+      if (!state.adminUnlocked) {
+        showToast('Unlock God Mode with a valid admin key first.', 'warn');
+        return;
+      }
+
+      if (state.godWorkspace.runInProgress) {
+        showToast('A workspace command is already running.', 'warn');
+        return;
+      }
+
+      const command = (commandOverride || el.godTerminalInput.value || '').trim();
+      if (!command) {
+        showToast('Enter a command to run in AI_Workspace.', 'warn');
+        return;
+      }
+
+      state.godWorkspace.runInProgress = true;
+      el.godTerminalRunBtn.disabled = true;
+      appendGodTerminalRaw(`\n$ ${command}\n`, 'system');
+
+      try {
+        const response = await fetch(`${getApiBase()}/api/god-workspace/run`, {
+          method: 'POST',
+          headers: {
+            ...getAdminHeaders(),
+            Accept: 'text/event-stream',
+          },
+          body: JSON.stringify(withRegisteredEmail({
+            command,
+            cwd: '.',
+            stream: true,
+          })),
+        });
+
+        const contentType = response.headers.get('content-type') || '';
+        if (!response.ok && !contentType.includes('text/event-stream')) {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch {
+            payload = { message: `Run failed (${response.status})` };
+          }
+          throw new Error(payload.message || `Run failed (${response.status})`);
+        }
+
+        if (!response.body) {
+          throw new Error('No response stream returned from workspace runner.');
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        const ingestRunFrames = (frames) => {
+          for (const frame of frames) {
+            if (!frame.trim()) continue;
+            const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
+            for (const line of frameLines) {
+              const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
+              if (!payloadRaw || payloadRaw === '[DONE]') continue;
+
+              let payload;
+              try {
+                payload = JSON.parse(payloadRaw);
+              } catch {
+                continue;
+              }
+
+              if (payload.type === 'meta') {
+                appendGodTerminalRaw(
+                  `[workspace-run] cwd=${payload.cwd || '.'} · ${payload.command || command}\n`,
+                  'system'
+                );
+                continue;
+              }
+
+              if (payload.type === 'stdout' && payload.content) {
+                appendGodTerminalRaw(payload.content, 'stdout');
+                continue;
+              }
+
+              if (payload.type === 'stderr' && payload.content) {
+                appendGodTerminalRaw(payload.content, 'stderr');
+                continue;
+              }
+
+              if (payload.type === 'exit') {
+                appendGodTerminalRaw(
+                  `\n[exit code ${payload.code ?? 1}${payload.signal ? ` signal ${payload.signal}` : ''}]\n`,
+                  payload.code === 0 ? 'system' : 'stderr'
+                );
+              }
+            }
+          }
+        };
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
+            const frames = buffer.split('\n\n');
+            buffer = frames.pop() || '';
+            ingestRunFrames(frames);
+          }
+          if (done) {
+            buffer += decoder.decode(undefined, { stream: false });
+            if (buffer.trim()) ingestRunFrames([buffer]);
+            break;
+          }
+        }
+      } catch (error) {
+        appendGodTerminalRaw(`\n[workspace-run] ${error.message}\n`, 'stderr');
+        showToast(error.message || 'Workspace command failed.', 'error');
+      } finally {
+        state.godWorkspace.runInProgress = false;
+        el.godTerminalRunBtn.disabled = false;
       }
     }
 
@@ -1549,6 +1747,7 @@
       logAdminConsole('SESSION', { status: 'admin_panel_unlocked' });
       initGodMonacoEditor();
       appendGodTerminalLog(`God Mode workspace online · localhost mirror of ${getApiBase()}`, 'info');
+      appendGodTerminalLog('Terminal runner ready — try: node workspace/app.js', 'info');
       refreshGodFileExplorer();
     }
 
@@ -1610,7 +1809,15 @@
         }
       });
       el.unlockGodModeBtn.addEventListener('click', unlockGodMode);
+      el.downloadGodProjectBtn.addEventListener('click', downloadGodWorkspaceProject);
       el.refreshGodFilesBtn.addEventListener('click', refreshGodFileExplorer);
+      el.godTerminalRunBtn.addEventListener('click', () => runGodWorkspaceCommand());
+      el.godTerminalInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          runGodWorkspaceCommand();
+        }
+      });
       el.toggleGodOpsBtn.addEventListener('click', () => {
         el.godOpsPanel.classList.toggle('hidden');
       });

@@ -10,6 +10,8 @@ const express = require('express');
 const cors = require('cors');
 const path = require('path');
 const fse = require('fs-extra');
+const archiver = require('archiver');
+const { spawn } = require('child_process');
 const axios = require('axios');
 const Redis = require('ioredis');
 const { createClient } = require('@supabase/supabase-js');
@@ -26,6 +28,19 @@ const GOD_MODE_HISTORY_FILE = path.join(AI_WORKSPACE_ROOT, 'god_mode_persistent_
 const MAX_GOD_MODE_HISTORY_STORED = 48;
 const MAX_GOD_MODE_HISTORY_RUNPOD_MESSAGES = 12;
 const MAX_GOD_MODE_HISTORY_CHARS_PER_MESSAGE = 2400;
+const WORKSPACE_RUN_TIMEOUT_MS = 120000;
+const WORKSPACE_ALLOWED_RUNNERS = new Set([
+  'node',
+  'npm',
+  'npx',
+  'python',
+  'python3',
+  'py',
+  'deno',
+  'bun',
+  'tsc',
+  'tsx',
+]);
 const PORT = Number(process.env.PORT) || 5000;
 const API_VERSION = '5.0.0';
 
@@ -761,6 +776,113 @@ async function appendGodModeChatTurn(userPrompt, assistantResponse) {
   const saved = await saveGodModeChatHistory(history);
   console.log(`[god-history] Persisted MASTER_OWNER turn (${saved.length} messages in log).`);
   return saved;
+}
+
+function assertSafeWorkspaceCommand(command) {
+  const trimmed = String(command || '').trim();
+  if (!trimmed) {
+    throw new Error('command is required.');
+  }
+  if (trimmed.length > 1200) {
+    throw new Error('command exceeds maximum length (1200 characters).');
+  }
+  if (/[|;&<>]/.test(trimmed)) {
+    throw new Error('Shell operators (|, &&, ;, <, >) are not allowed in workspace commands.');
+  }
+  if (/\.\.(\/|\\)/.test(trimmed)) {
+    throw new Error('Path traversal (..) is not allowed in workspace commands.');
+  }
+
+  const runnerToken = trimmed.split(/\s+/)[0];
+  const runnerBase = path.basename(runnerToken).replace(/\.exe$/i, '').toLowerCase();
+  if (!WORKSPACE_ALLOWED_RUNNERS.has(runnerBase)) {
+    throw new Error(
+      `Runner "${runnerBase}" is not allowed. Allowed runners: ${[...WORKSPACE_ALLOWED_RUNNERS].join(', ')}`
+    );
+  }
+
+  return trimmed;
+}
+
+async function resolveWorkspaceRunCwd(relativeDir = '.') {
+  const target = String(relativeDir || '.').trim() || '.';
+  const absolute = resolveAiWorkspacePath(target);
+  const stat = await fse.stat(absolute);
+  if (!stat.isDirectory()) {
+    throw new Error('Workspace run cwd must be a directory.');
+  }
+  return absolute;
+}
+
+async function streamWorkspaceProcessToClient(res, command, { cwd = '.' } = {}) {
+  const safeCommand = assertSafeWorkspaceCommand(command);
+  await ensureAiWorkspaceReady();
+  const absoluteCwd = await resolveWorkspaceRunCwd(cwd);
+
+  initSseHeaders(res);
+  writeSseFrame(res, {
+    type: 'meta',
+    stream: 'workspace-run',
+    command: safeCommand,
+    cwd: path.relative(AI_WORKSPACE_ROOT, absoluteCwd).split(path.sep).join('/') || '.',
+    workspace: AI_WORKSPACE_DIR_NAME,
+  });
+
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    const child = spawn(safeCommand, {
+      cwd: absoluteCwd,
+      shell: true,
+      env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' },
+      windowsHide: true,
+    });
+
+    const timeout = setTimeout(() => {
+      if (finished) return;
+      writeSseFrame(res, {
+        type: 'stderr',
+        content: `\n[workspace-run] Timed out after ${WORKSPACE_RUN_TIMEOUT_MS / 1000}s — process killed.\n`,
+      });
+      child.kill('SIGTERM');
+      setTimeout(() => child.kill('SIGKILL'), 1500);
+    }, WORKSPACE_RUN_TIMEOUT_MS);
+
+    const emitProcessChunk = (streamType, chunk) => {
+      const text = chunk.toString();
+      if (!text) return;
+      writeSseFrame(res, { type: streamType, content: text });
+    };
+
+    child.stdout.on('data', (chunk) => emitProcessChunk('stdout', chunk));
+    child.stderr.on('data', (chunk) => emitProcessChunk('stderr', chunk));
+
+    child.on('error', (err) => {
+      clearTimeout(timeout);
+      if (finished) return;
+      finished = true;
+      writeSseFrame(res, { type: 'stderr', content: `\n[workspace-run] Spawn error: ${err.message}\n` });
+      writeSseFrame(res, { type: 'exit', code: 1, signal: null });
+      res.write('data: [DONE]\n\n');
+      res.end();
+      reject(err);
+    });
+
+    child.on('close', (code, signal) => {
+      clearTimeout(timeout);
+      if (finished) return;
+      finished = true;
+      writeSseFrame(res, { type: 'exit', code: code ?? 1, signal: signal || null });
+      res.write('data: [DONE]\n\n');
+      res.end();
+      resolve({ code: code ?? 1, signal: signal || null });
+    });
+
+    res.on('close', () => {
+      if (!finished) {
+        child.kill('SIGTERM');
+      }
+    });
+  });
 }
 
 async function listAiWorkspaceFiles(relativeDir = '') {
@@ -2699,6 +2821,69 @@ app.get('/api/god-workspace/list', authMiddleware, godModeBypassClientRules, asy
   } catch (err) {
     console.error('[god-workspace]', err.message);
     sendError(res, 500, 'WORKSPACE_LIST_FAILED', err.message || 'Failed to list AI_Workspace files.');
+  }
+});
+
+app.get('/api/god-workspace/download', authMiddleware, godModeBypassClientRules, async (req, res) => {
+  if (!assertUncensoredGodModeFileAccess(req, res)) return;
+
+  try {
+    await ensureAiWorkspaceReady();
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `AI_Workspace-${timestamp}.zip`;
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    archive.on('error', (err) => {
+      console.error('[god-workspace] Zip archive error:', err.message);
+      if (!res.headersSent) {
+        sendError(res, 500, 'WORKSPACE_ZIP_FAILED', err.message || 'Failed to build workspace zip.');
+      } else {
+        res.end();
+      }
+    });
+
+    archive.pipe(res);
+    archive.glob('**/*', {
+      cwd: AI_WORKSPACE_ROOT,
+      ignore: ['god_mode_persistent_chat.json'],
+      dot: false,
+    });
+    await archive.finalize();
+    console.log(`[god-workspace] Project zip download started: ${filename}`);
+  } catch (err) {
+    console.error('[god-workspace]', err.message);
+    if (!res.headersSent) {
+      sendError(res, 500, 'WORKSPACE_ZIP_FAILED', err.message || 'Failed to download AI_Workspace project.');
+    }
+  }
+});
+
+app.post('/api/god-workspace/run', authMiddleware, godModeBypassClientRules, async (req, res) => {
+  if (!assertUncensoredGodModeFileAccess(req, res)) return;
+
+  try {
+    const { command, cwd } = req.body || {};
+    if (!command || typeof command !== 'string') {
+      return sendError(res, 400, 'COMMAND_REQUIRED', 'command is required.');
+    }
+
+    console.log(`[god-workspace] Executing headless command: ${command}`);
+    const result = await streamWorkspaceProcessToClient(res, command, { cwd });
+    console.log(`[god-workspace] Command finished with exit code ${result.code}`);
+  } catch (err) {
+    console.error('[god-workspace] Run failed:', err.message);
+    if (!res.headersSent) {
+      sendError(res, 500, 'WORKSPACE_RUN_FAILED', err.message || 'Failed to execute workspace command.');
+    } else if (!res.writableEnded) {
+      writeSseFrame(res, { type: 'stderr', content: `\n[workspace-run] ${err.message}\n` });
+      writeSseFrame(res, { type: 'exit', code: 1, signal: null });
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
   }
 });
 
