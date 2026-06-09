@@ -408,27 +408,180 @@ function getClientIdentity(req) {
 }
 
 const DEVELOPER_API_KEY_BYPASS_EMAIL = 'developer_bypass@aiuniverse.core';
+const GOD_MODE_DEVELOPER_TOKEN_BALANCE = 10000;
 
-function bypassDeveloperApiKeyIdentity(req, res, next) {
+function resolveDeveloperApiKeyIdentity(req, res, next) {
   const body = req.body || {};
-  const emailFromHeader = (
-    req.headers['x-user-email'] ||
-    req.headers['x-client-email'] ||
-    req.headers['client-email'] ||
-    ''
-  )
-    .trim()
-    .toLowerCase();
   const emailFromBody = (body.email || body.user_email || body.userEmail || '')
     .trim()
     .toLowerCase();
-  const email = emailFromHeader || emailFromBody || DEVELOPER_API_KEY_BYPASS_EMAIL;
+  const fingerprintFromBody = (body.device_fingerprint || body.deviceFingerprint || '').trim();
 
-  req.headers['x-user-email'] = email;
-  req.headers['x-client-email'] = email;
-  req.headers['client-email'] = email;
+  if (!req.headers['x-user-email'] && emailFromBody) {
+    req.headers['x-user-email'] = emailFromBody;
+  }
+  if (!req.headers['x-client-email'] && emailFromBody) {
+    req.headers['x-client-email'] = emailFromBody;
+  }
+  if (!req.headers['client-email'] && emailFromBody) {
+    req.headers['client-email'] = emailFromBody;
+  }
+  if (!req.headers['x-device-fingerprint'] && fingerprintFromBody) {
+    req.headers['x-device-fingerprint'] = fingerprintFromBody;
+  }
 
   return next();
+}
+
+async function findUserApiRecordByEmail(email) {
+  const { data, error } = await getSupabase()
+    .from('users')
+    .select(USER_API_COLUMNS)
+    .eq('email', email)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data || null;
+}
+
+async function ensureGodModeDeveloperBypassAccount() {
+  const existing = await findUserApiRecordByEmail(DEVELOPER_API_KEY_BYPASS_EMAIL);
+  if (existing) return existing;
+
+  const { data, error } = await getSupabase()
+    .from('users')
+    .insert({
+      email: DEVELOPER_API_KEY_BYPASS_EMAIL,
+      is_email_verified: true,
+      device_fingerprint: 'god-mode-developer-bypass',
+      role: 'CLIENT',
+      token_balance: GOD_MODE_DEVELOPER_TOKEN_BALANCE,
+    })
+    .select(USER_API_COLUMNS)
+    .single();
+
+  if (error) {
+    if (error.code === '23505') {
+      const raced = await findUserApiRecordByEmail(DEVELOPER_API_KEY_BYPASS_EMAIL);
+      if (raced) return raced;
+    }
+    throw error;
+  }
+
+  console.log(
+    `[developer-api] Created God Mode mock developer account (${DEVELOPER_API_KEY_BYPASS_EMAIL}) with ${GOD_MODE_DEVELOPER_TOKEN_BALANCE} token_balance.`
+  );
+  return data;
+}
+
+async function checkDeveloperApiKeyEligibility(user) {
+  if (!user?.id) {
+    return {
+      eligible: false,
+      status: 401,
+      code: 'AUTH_REQUIRED',
+      message: 'Verified client session is required to generate an API key.',
+    };
+  }
+
+  if (!user.is_email_verified) {
+    return {
+      eligible: false,
+      status: 401,
+      code: 'AUTH_REQUIRED',
+      message: 'Email verification is required before generating a developer API key.',
+      extra: { verificationRequired: true },
+    };
+  }
+
+  if (user.role === 'OVERRIDE_UNLIMITED') {
+    return { eligible: true };
+  }
+
+  const profile = await fetchUserDeveloperApiProfile(user.id);
+  const tokenBalance =
+    profile.token_balance != null ? Math.max(0, Number(profile.token_balance) || 0) : 0;
+
+  if (tokenBalance > 0) {
+    return { eligible: true };
+  }
+
+  const refreshed = await resetDailyCountersIfNeeded(user);
+  if (accountAgeDays(refreshed.created_at) <= TRIAL_DAYS) {
+    return { eligible: true };
+  }
+
+  return {
+    eligible: false,
+    status: 402,
+    code: 'PAYMENT_REQUIRED',
+    message:
+      'A paid token balance or active trial is required to generate a commercial API key. Upgrade to continue.',
+    extra: { redirect: PRICING_REDIRECT },
+  };
+}
+
+async function enforceDeveloperApiKeyAccess(req, res, next) {
+  const { email } = getClientIdentity(req);
+
+  if (email === DEVELOPER_API_KEY_BYPASS_EMAIL) {
+    if (!isValidMasterOwnerKey(req) && req.role !== 'MASTER_OWNER') {
+      return sendError(
+        res,
+        401,
+        'AUTH_REQUIRED',
+        'Developer bypass keys require an authenticated God Mode session.'
+      );
+    }
+
+    try {
+      const dbHealthy = await verifyDatabaseHealth('generate-api-key');
+      if (!dbHealthy) {
+        return sendError(
+          res,
+          503,
+          'DATABASE_UNAVAILABLE',
+          'Supabase PostgreSQL is required and currently unreachable.'
+        );
+      }
+
+      const user = await ensureGodModeDeveloperBypassAccount();
+      req.user = user;
+      req.effectiveRole = 'DEVELOPER_BYPASS';
+      req.developerApiGodModeBypass = true;
+      return next();
+    } catch (err) {
+      console.error('[developer-api/access]', err.message);
+      const schemaFailure = formatSupabaseSchemaFailure(err);
+      if (schemaFailure) {
+        return sendError(res, 503, schemaFailure.code, schemaFailure.message, {
+          hint: schemaFailure.hint,
+          details: schemaFailure.details,
+        });
+      }
+      return sendError(res, 500, 'API_KEY_ACCESS_FAILED', 'Failed to prepare developer API key access.');
+    }
+  }
+
+  if (isValidMasterOwnerKey(req) || req.role === 'MASTER_OWNER') {
+    return sendError(
+      res,
+      403,
+      'MASTER_OWNER_EXEMPT',
+      'God Mode owners use MASTER_ADMIN_KEY for API access. Generate client keys using your verified client email.'
+    );
+  }
+
+  if (!email) {
+    return sendError(
+      res,
+      401,
+      'AUTH_REQUIRED',
+      'Email is required. Send x-user-email header or include email in the JSON request body.'
+    );
+  }
+
+  return enforceClientRules(req, res, next);
 }
 
 function formatSupabaseSchemaFailure(err) {
@@ -3151,39 +3304,39 @@ app.get('/api/user/session', authMiddleware, handleGodModeSession, godModeBypass
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/user/generate-api-key — self-service sk_client_* keys (open bypass)
-// No auth middleware: email from header/body, else developer_bypass@aiuniverse.core
+// POST /api/user/generate-api-key — sk_client_* keys for verified, eligible users only
+// Secure flow: authMiddleware → resolveDeveloperApiKeyIdentity → enforceDeveloperApiKeyAccess
+// God Mode testing: developer_bypass@aiuniverse.core + MASTER_ADMIN_KEY only
 // ---------------------------------------------------------------------------
 
 async function handleGenerateClientApiKey(req, res) {
+  if (!req.user?.id) {
+    return sendError(
+      res,
+      401,
+      'AUTH_REQUIRED',
+      'Verified client session is required to generate an API key.'
+    );
+  }
+
   try {
-    const { email } = getClientIdentity(req);
-    const resolvedEmail = email || DEVELOPER_API_KEY_BYPASS_EMAIL;
-
-    const dbHealthy = await verifyDatabaseHealth('generate-api-key');
-    if (!dbHealthy) {
-      return sendError(
-        res,
-        503,
-        'DATABASE_UNAVAILABLE',
-        'Supabase PostgreSQL is required and currently unreachable.'
-      );
+    if (!req.developerApiGodModeBypass) {
+      const eligibility = await checkDeveloperApiKeyEligibility(req.user);
+      if (!eligibility.eligible) {
+        return sendError(
+          res,
+          eligibility.status,
+          eligibility.code,
+          eligibility.message,
+          eligibility.extra || {}
+        );
+      }
     }
 
-    let user = await findUserByEmail(resolvedEmail);
-    if (!user) {
-      user = await markEmailVerifiedInSupabase(resolvedEmail, 'developer-api-key-bypass');
-    } else if (!user.is_email_verified) {
-      user = await markEmailVerifiedInSupabase(
-        resolvedEmail,
-        user.device_fingerprint || 'developer-api-key-bypass'
-      );
-    }
-
-    const { apiKey, user: updatedUser } = await assignClientApiKeyForUser(user);
+    const { apiKey, user: updatedUser } = await assignClientApiKeyForUser(req.user);
     const tokenBalance = await resolvePaidUserTokenBalance(updatedUser);
-    const creditsUsed = await getDailyCreditsUsed(updatedUser.email);
-    const creditLimit = dailyCreditLimit(updatedUser);
+    const creditsUsed = req.creditsUsed ?? (await getDailyCreditsUsed(updatedUser.email));
+    const creditLimit = req.creditLimit ?? dailyCreditLimit(updatedUser);
 
     console.log(
       `[developer-api] Issued new client API key for ${updatedUser.email} (prefix ${apiKey.slice(0, 12)}…)`
@@ -3216,7 +3369,13 @@ async function handleGenerateClientApiKey(req, res) {
   }
 }
 
-app.post('/api/user/generate-api-key', bypassDeveloperApiKeyIdentity, handleGenerateClientApiKey);
+app.post(
+  '/api/user/generate-api-key',
+  authMiddleware,
+  resolveDeveloperApiKeyIdentity,
+  enforceDeveloperApiKeyAccess,
+  handleGenerateClientApiKey
+);
 
 app.post('/api/v1/chat/completions', commercialApiAuthMiddleware, async (req, res) => {
   try {
