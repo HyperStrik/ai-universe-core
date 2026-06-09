@@ -542,13 +542,127 @@
       return map[ext] || 'plaintext';
     }
 
-    function stripWorkspaceTagsFromDisplay(text) {
-      return String(text || '')
-        .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>\n[\s\S]*?(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>|$)/g, '')
-        .replace(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>/g, '')
-        .replace(/<<<END_AI_WORKSPACE_WRITE>>>/g, '')
-        .replace(/<<<AI_WORKSPACE_WRITE_END>>>/g, '')
+    const GOD_WORKSPACE_BLOCK_RE =
+      /<<<AI_WORKSPACE_WRITE:\s*([^\n>]+?)\s*>>>\s*\r?\n?([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>|$)/gi;
+    const GOD_WORKSPACE_OPEN_RE = /<<<AI_WORKSPACE_WRITE:\s*[^\n>]+?\s*>>>/gi;
+    const GOD_WORKSPACE_CLOSE_RE = /<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>/gi;
+    const GOD_MARKDOWN_FENCE_RE = /```(\w*)?\s*\r?\n([\s\S]*?)(?:```|$)/g;
+
+    const GOD_LANG_TO_PATH = {
+      html: 'workspace/index.html',
+      htm: 'workspace/index.html',
+      css: 'workspace/styles.css',
+      javascript: 'workspace/app.js',
+      js: 'workspace/app.js',
+      jsx: 'workspace/App.jsx',
+      typescript: 'workspace/app.ts',
+      ts: 'workspace/app.ts',
+      tsx: 'workspace/App.tsx',
+      python: 'workspace/main.py',
+      py: 'workspace/main.py',
+      json: 'workspace/config.json',
+      sql: 'workspace/query.sql',
+      sh: 'workspace/run.sh',
+      bash: 'workspace/run.sh',
+      md: 'workspace/README.md',
+      markdown: 'workspace/README.md',
+    };
+
+    function normalizeWorkspaceCloseTags(text) {
+      return String(text || '').replace(/<<<AI_WORKSPACE_WRITE_END>>>/gi, '<<<END_AI_WORKSPACE_WRITE>>>');
+    }
+
+    function stripMarkdownFencesFromCode(code) {
+      return String(code || '')
+        .replace(/^```[\w.-]*\s*\r?\n?/i, '')
+        .replace(/\r?\n?```\s*$/i, '')
         .trim();
+    }
+
+    function inferWorkspacePathFromLang(lang, index) {
+      const key = String(lang || '').trim().toLowerCase();
+      if (key && GOD_LANG_TO_PATH[key]) return GOD_LANG_TO_PATH[key];
+      if (key) return `workspace/snippet.${key}`;
+      return `workspace/stream_${index}.txt`;
+    }
+
+    function stripSystemPromptEcho(text) {
+      return String(text || '')
+        .replace(/CRITICAL RULE\s*[—-]\s*MONACO EDITOR ROUTING[\s\S]*?(?=\n\n|$)/gi, '')
+        .replace(/Never output raw source code[\s\S]*?raw chat code breaks the IDE\.?/gi, '')
+        .replace(/You MUST wrap every file'?s complete source code[\s\S]*?<<<END_AI_WORKSPACE_WRITE>>>/gi, '')
+        .replace(/\[YOUR COMPLETE FILE CODE HERE\]/gi, '')
+        .replace(/<<<AI_WORKSPACE_WRITE:\s*folder\/filename\.ext\s*>>>/gi, '')
+        .replace(/HIGHEST PRIORITY,\s*NEVER OVERRIDE/gi, '')
+        .replace(/Outside those tags:[\s\S]*?zero inline code\.?/gi, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+    }
+
+    function processGodModeStream(fullText) {
+      const normalized = normalizeWorkspaceCloseTags(fullText);
+      const files = {};
+      let monacoPath = null;
+      let monacoContent = null;
+
+      const blockRe = new RegExp(GOD_WORKSPACE_BLOCK_RE.source, 'gi');
+      let match;
+      while ((match = blockRe.exec(normalized)) !== null) {
+        const filePath = match[1].trim();
+        const fileContent = stripMarkdownFencesFromCode(match[2]);
+        files[filePath] = fileContent;
+        monacoPath = filePath;
+        monacoContent = fileContent;
+      }
+
+      if (!monacoPath) {
+        const mdRe = new RegExp(GOD_MARKDOWN_FENCE_RE.source, 'g');
+        let mdIndex = 0;
+        while ((match = mdRe.exec(normalized)) !== null) {
+          const inner = match[2].trim();
+          if (!inner) continue;
+          mdIndex += 1;
+          const filePath = inferWorkspacePathFromLang(match[1], mdIndex);
+          files[filePath] = inner;
+          monacoPath = filePath;
+          monacoContent = inner;
+        }
+      }
+
+      let chatDisplay = normalized;
+      chatDisplay = chatDisplay.replace(new RegExp(GOD_WORKSPACE_BLOCK_RE.source, 'gi'), '');
+      chatDisplay = chatDisplay.replace(GOD_WORKSPACE_OPEN_RE, '');
+      chatDisplay = chatDisplay.replace(GOD_WORKSPACE_CLOSE_RE, '');
+      chatDisplay = chatDisplay.replace(new RegExp(GOD_MARKDOWN_FENCE_RE.source, 'g'), '');
+      chatDisplay = chatDisplay.replace(/<<<AI_WORKSPACE_WRITE[\s\S]*$/i, '');
+      chatDisplay = stripSystemPromptEcho(chatDisplay);
+
+      return { files, monacoPath, monacoContent, chatDisplay };
+    }
+
+    function applyGodWorkspaceStream(fullText) {
+      const parsed = processGodModeStream(fullText);
+      let updated = false;
+
+      Object.entries(parsed.files).forEach(([filePath, fileContent]) => {
+        state.godWorkspace.files[filePath] = fileContent;
+        if (!state.godWorkspace.treeEntries.find((e) => e.path === filePath)) {
+          state.godWorkspace.treeEntries.push({ type: 'file', path: filePath });
+        }
+        updated = true;
+      });
+
+      if (parsed.monacoPath) {
+        state.godWorkspace.activeFile = parsed.monacoPath;
+        setGodMonacoContent(parsed.monacoContent, parsed.monacoPath);
+        renderGodFileExplorer();
+      }
+
+      return {
+        chatDisplay: parsed.chatDisplay,
+        hasMonacoContent: Boolean(parsed.monacoPath),
+        updated,
+      };
     }
 
     function setGodMonacoContent(content, filePath) {
@@ -693,31 +807,6 @@
       }
     }
 
-    function syncGodWorkspaceFromStream(fullText) {
-      if (!fullText) return;
-
-      const blockPattern = /<<<AI_WORKSPACE_WRITE:([^\n>]+)>>>\n([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>|$)/g;
-      let match;
-      let activePath = null;
-      let activeContent = '';
-
-      while ((match = blockPattern.exec(fullText)) !== null) {
-        const filePath = match[1].trim();
-        const fileContent = match[2];
-        state.godWorkspace.files[filePath] = fileContent;
-        activePath = filePath;
-        activeContent = fileContent;
-      }
-
-      if (activePath) {
-        state.godWorkspace.activeFile = activePath;
-        setGodMonacoContent(activeContent, activePath);
-        if (!state.godWorkspace.treeEntries.find((e) => e.path === activePath)) {
-          state.godWorkspace.treeEntries.push({ type: 'file', path: activePath });
-        }
-        renderGodFileExplorer();
-      }
-    }
 
     function createChatBubble(role, content, tags) {
       const wrapper = document.createElement('div');
@@ -1202,8 +1291,10 @@
                     ? payload.content.replace(TRUNCATION_BADGE, '')
                     : payload.content;
                   fullText += chunk;
-                  syncGodWorkspaceFromStream(fullText);
-                  assistantNode.body.textContent = stripWorkspaceTagsFromDisplay(fullText) || 'Writing to workspace…';
+                  const streamView = applyGodWorkspaceStream(fullText);
+                  assistantNode.body.textContent = streamView.hasMonacoContent
+                    ? (streamView.chatDisplay || 'Writing to Monaco workspace…')
+                    : (streamView.chatDisplay || fullText);
                   el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
                 }
               }
@@ -1230,9 +1321,10 @@
           if (!fullText.trim()) {
             assistantNode.body.textContent = 'No response content returned from model.';
           } else {
-            syncGodWorkspaceFromStream(fullText);
-            const chatDisplay = stripWorkspaceTagsFromDisplay(fullText);
-            assistantNode.body.textContent = chatDisplay || 'Workspace files updated — see Monaco editor.';
+            const finalView = applyGodWorkspaceStream(fullText);
+            assistantNode.body.textContent = finalView.hasMonacoContent
+              ? (finalView.chatDisplay || 'Workspace files updated — see Monaco editor.')
+              : (finalView.chatDisplay || fullText);
             await refreshGodFileExplorer();
             appendGodTerminalLog('God Mode stream completed — workspace synced.', 'info');
           }

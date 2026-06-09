@@ -457,14 +457,22 @@ function resolveSafePath(relativePath) {
 
 const GOD_MODE_WORKSPACE_CLOSE_TAG = '<<<END_AI_WORKSPACE_WRITE>>>';
 const GOD_MODE_WORKSPACE_CLOSE_TAG_ALT = '<<<AI_WORKSPACE_WRITE_END>>>';
-const GOD_MODE_WORKSPACE_CLOSE_PATTERN = /(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>)/g;
+const GOD_MODE_WORKSPACE_OPEN_TAG =
+  /<<<AI_WORKSPACE_WRITE:\s*([^\n>]+?)\s*>>>\s*\r?\n?/i;
 const AI_WORKSPACE_WRITE_BLOCK =
-  /<<<AI_WORKSPACE_WRITE:([^\n>]+)>>>\r?\n([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>)/g;
-const AI_WORKSPACE_WRITE_OPEN_TAG = /<<<AI_WORKSPACE_WRITE:[^\n>]+>>>/g;
-const AI_WORKSPACE_WRITE_CLOSE_TAG = /(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>)/g;
+  /<<<AI_WORKSPACE_WRITE:\s*([^\n>]+?)\s*>>>\s*\r?\n?([\s\S]*?)(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>)/gi;
+const AI_WORKSPACE_WRITE_OPEN_TAG = /<<<AI_WORKSPACE_WRITE:\s*[^\n>]+?\s*>>>/gi;
+const AI_WORKSPACE_WRITE_CLOSE_TAG = /(?:<<<END_AI_WORKSPACE_WRITE>>>|<<<AI_WORKSPACE_WRITE_END>>>)/gi;
 
 function normalizeGodModeWorkspaceCloseTags(text) {
-  return String(text || '').replace(/<<<AI_WORKSPACE_WRITE_END>>>/g, GOD_MODE_WORKSPACE_CLOSE_TAG);
+  return String(text || '').replace(/<<<AI_WORKSPACE_WRITE_END>>>/gi, GOD_MODE_WORKSPACE_CLOSE_TAG);
+}
+
+function stripMarkdownFencesFromWorkspaceCode(code) {
+  return String(code || '')
+    .replace(/^```[\w.-]*\s*\r?\n?/i, '')
+    .replace(/\r?\n?```\s*$/i, '')
+    .trim();
 }
 
 function stripWorkspaceWriteBlocksFromText(text) {
@@ -472,57 +480,6 @@ function stripWorkspaceWriteBlocksFromText(text) {
     .replace(AI_WORKSPACE_WRITE_BLOCK, '')
     .replace(AI_WORKSPACE_WRITE_OPEN_TAG, '')
     .replace(AI_WORKSPACE_WRITE_CLOSE_TAG, '');
-}
-
-function createGodModeWorkspaceStreamRelay() {
-  let carry = '';
-
-  const partialMarkers = [
-    '<<<',
-    '<<<A',
-    '<<<AI',
-    '<<<AI_',
-    '<<<AI_W',
-    '<<<AI_WORKSPACE',
-    '<<<AI_WORKSPACE_WRITE',
-    '<<<AI_WORKSPACE_WRITE:',
-    '<<<END',
-    '<<<END_',
-    '<<<END_AI',
-    '<<<END_AI_WORKSPACE',
-    '<<<END_AI_WORKSPACE_WRITE',
-    '<<<AI_WORKSPACE_WRITE_END',
-    '<<<AI_WORKSPACE_WRITE_END>',
-    '<<<AI_WORKSPACE_WRITE_END>>',
-  ];
-
-  const process = (text) => {
-    carry += normalizeGodModeWorkspaceCloseTags(text);
-    let holdBack = 0;
-
-    for (const marker of partialMarkers) {
-      for (let i = 1; i < marker.length; i += 1) {
-        if (carry.endsWith(marker.slice(0, i))) {
-          holdBack = Math.max(holdBack, i);
-        }
-      }
-    }
-
-    const emitLen = carry.length - holdBack;
-    if (emitLen <= 0) return '';
-
-    const output = carry.slice(0, emitLen);
-    carry = carry.slice(emitLen);
-    return output;
-  };
-
-  const flush = () => {
-    const remainder = normalizeGodModeWorkspaceCloseTags(carry);
-    carry = '';
-    return remainder;
-  };
-
-  return { process, flush };
 }
 
 function createWorkspaceWriteStreamSanitizer() {
@@ -557,7 +514,7 @@ function createWorkspaceWriteStreamSanitizer() {
         continue;
       }
 
-      const openMatch = carry.match(/<<<AI_WORKSPACE_WRITE:[^\n>]+>>>/);
+      const openMatch = carry.match(/<<<AI_WORKSPACE_WRITE:\s*[^\n>]+?\s*>>>/i);
       if (openMatch) {
         const openIdx = carry.indexOf(openMatch[0]);
         output += carry.slice(0, openIdx);
@@ -678,12 +635,12 @@ async function extractAndWriteGodModeWorkspaceFiles(aiText, { allowWorkspaceFile
   if (!aiText || typeof aiText !== 'string') return [];
 
   const writes = [];
-  const pattern = new RegExp(AI_WORKSPACE_WRITE_BLOCK.source, 'g');
+  const pattern = new RegExp(AI_WORKSPACE_WRITE_BLOCK.source, 'gi');
   let match;
 
   while ((match = pattern.exec(aiText)) !== null) {
     const relativePath = match[1].trim();
-    const fileContent = match[2];
+    const fileContent = stripMarkdownFencesFromWorkspaceCode(match[2]);
 
     try {
       const result = await writeFileToAiWorkspace(relativePath, fileContent, {
@@ -727,7 +684,7 @@ function compactGodModeHistoryContent(content, role = 'assistant') {
     (_match, relativePath) => `[Monaco workspace file written: ${String(relativePath).trim()}]`
   );
   compacted = compacted.replace(
-    /<<<AI_WORKSPACE_WRITE:[^\n>]+>>>\n[\s\S]*$/g,
+    /<<<AI_WORKSPACE_WRITE:\s*[^\n>]+?\s*>>>\s*\r?\n?[\s\S]*$/gi,
     '[Monaco workspace write in progress — tags omitted from history]'
   );
   compacted = compacted
@@ -1164,7 +1121,6 @@ const DOLPHIN_UNCENSORED_SYSTEM_PROMPT = [
   'CONVERSATIONAL VS CODING: If the user is talking casually, asking questions, or discussing concepts, act as an expert companion without source code. When building/creating software or websites, emit ONLY tagged workspace blocks for code — never raw code in chat.',
   'LANGUAGE & MULTILINGUAL: Seamlessly understand and respond in the user\'s preferred style (English, Hindi, Gujarati, or Hinglish).',
   'PERSISTENT CONTEXT: Treat prior conversation turns in this thread as authoritative session memory. Maintain continuity, callbacks, and evolving reasoning across the full dialogue.',
-  GOD_MODE_MONACO_WORKSPACE_DIRECTIVE,
 ].join(' ');
 
 const GOD_MODE_HYBRID_KNOWLEDGE_DIRECTIVE = [
@@ -1287,38 +1243,25 @@ function buildGodModeMessages(prompt, { webContext = null, mode = 'master-owner-
 
   if (webContext && mode === 'admin-deep') {
     systemContent = [
-      GOD_MODE_MONACO_WORKSPACE_DIRECTIVE,
       systemContent,
       ADMIN_DEEP_SCRAPE_DIRECTIVE,
       '--- HYBRID KNOWLEDGE ENGINE: DEEP-SCRAPE INTERNET LAYER (UNFILTERED) ---',
       webContext,
       '--- END HYBRID KNOWLEDGE ENGINE LAYER ---',
-      GOD_MODE_MONACO_WORKSPACE_DIRECTIVE,
     ].join('\n\n');
   } else if (webContext) {
     systemContent = [
-      GOD_MODE_MONACO_WORKSPACE_DIRECTIVE,
       systemContent,
       GOD_MODE_HYBRID_KNOWLEDGE_DIRECTIVE,
       '--- HYBRID KNOWLEDGE ENGINE: REAL-TIME INTERNET LAYER (UNFILTERED) ---',
       webContext,
       '--- END HYBRID KNOWLEDGE ENGINE LAYER ---',
-      GOD_MODE_MONACO_WORKSPACE_DIRECTIVE,
     ].join('\n\n');
-  } else {
-    systemContent = [GOD_MODE_MONACO_WORKSPACE_DIRECTIVE, systemContent, GOD_MODE_MONACO_WORKSPACE_DIRECTIVE].join(
-      '\n\n'
-    );
   }
 
   const priorTurns = trimHistoryForRunPodContext(conversationHistory);
 
-  return [
-    { role: 'system', content: systemContent },
-    { role: 'system', content: GOD_MODE_MONACO_WORKSPACE_DIRECTIVE },
-    ...priorTurns,
-    { role: 'user', content: prompt },
-  ];
+  return [{ role: 'system', content: systemContent }, ...priorTurns, { role: 'user', content: prompt }];
 }
 
 function buildRunPodOpenAiPayload(prompt, options = {}) {
@@ -1948,7 +1891,6 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
 
   const allowWorkspaceFileWrites = uncensored === true;
   const clientOutputSanitizer = allowWorkspaceFileWrites ? null : createWorkspaceWriteStreamSanitizer();
-  const godModeWorkspaceRelay = allowWorkspaceFileWrites ? createGodModeWorkspaceStreamRelay() : null;
 
   const streamState = {
     wordCount: 0,
@@ -1964,14 +1906,6 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     const finalize = (result) => {
       if (streamState.finished) return;
       streamState.finished = true;
-
-      if (allowWorkspaceFileWrites && godModeWorkspaceRelay) {
-        const relayFlush = godModeWorkspaceRelay.flush();
-        if (relayFlush) {
-          writeSseFrame(res, { content: relayFlush });
-          streamState.emittedText += relayFlush;
-        }
-      }
 
       if (!allowWorkspaceFileWrites && clientOutputSanitizer) {
         const flushed = clientOutputSanitizer.flush();
@@ -2008,14 +1942,12 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
     const emitStreamContent = (content) => {
       if (!content) return true;
 
-      let safeContent = normalizeGodModeWorkspaceCloseTags(content);
-      if (allowWorkspaceFileWrites && godModeWorkspaceRelay) {
-        safeContent = godModeWorkspaceRelay.process(safeContent);
-        if (!safeContent) return true;
-      } else if (!allowWorkspaceFileWrites && clientOutputSanitizer) {
-        safeContent = clientOutputSanitizer.process(safeContent);
-        if (!safeContent) return true;
-      }
+      let safeContent = allowWorkspaceFileWrites
+        ? normalizeGodModeWorkspaceCloseTags(content)
+        : clientOutputSanitizer
+          ? clientOutputSanitizer.process(content)
+          : content;
+      if (!safeContent) return true;
 
       if (applyWordLimit) {
         return emitWordLimitedContent(res, safeContent, streamState);
