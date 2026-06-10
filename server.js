@@ -2516,30 +2516,32 @@ async function universalApiKeyValidator(req, res, next) {
     const authHeader = String(req.headers.authorization || '').trim();
     const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
     if (!bearerMatch) {
-      return next();
+      return sendOpenAiError(
+        res,
+        401,
+        'invalid_api_key',
+        'External API access requires Authorization: Bearer sk_client_...'
+      );
     }
 
     const apiKey = bearerMatch[1].trim();
-    const isGodModeOwnerKey =
-      (GOD_MODE_MASTER_KEY && apiKey === GOD_MODE_MASTER_KEY) || apiKey.startsWith('sk_god_master_');
-
-    if (isGodModeOwnerKey) {
-      req.userTier = 'GOD_MODE_OWNER';
-      return next();
-    }
-
     if (!apiKey.startsWith('sk_client_')) {
-      return next();
+      return sendOpenAiError(
+        res,
+        401,
+        'invalid_api_key',
+        'External API access requires a valid sk_client_ developer API key.'
+      );
     }
 
     const dbHealthy = await verifyDatabaseHealth('universal-api-key-validator');
     if (!dbHealthy) {
-      return res.status(503).json({
-        error: {
-          message: 'Supabase PostgreSQL is required for API key validation and is currently unreachable.',
-          type: 'database_unavailable',
-        },
-      });
+      return sendOpenAiError(
+        res,
+        503,
+        'database_unavailable',
+        'Supabase PostgreSQL is required for API key validation and is currently unreachable.'
+      );
     }
 
     const { data: user, error } = await getSupabase()
@@ -2550,155 +2552,45 @@ async function universalApiKeyValidator(req, res, next) {
 
     if (error) throw error;
     if (!user) {
-      return res.status(401).json({
-        error: {
-          message: 'Invalid API key.',
-          type: 'invalid_api_key',
-        },
-      });
+      return sendOpenAiError(res, 401, 'invalid_api_key', 'Invalid API key.');
     }
 
     const currentBalance = Math.max(0, Number(user.token_balance) || 0);
     if (currentBalance <= 0) {
-      return res.status(402).json({
-        error: {
-          message: 'Payment required. Token balance must be greater than zero.',
-          type: 'payment_required',
-        },
-      });
+      return sendOpenAiError(
+        res,
+        402,
+        'payment_required',
+        'Payment required. Token balance must be greater than zero.',
+        { wallet_balance_remaining: currentBalance }
+      );
     }
 
     req.userTier = 'PUBLIC_CLIENT';
     req.userEmail = user.email;
     req.currentBalance = currentBalance;
+    req.externalApiKey = apiKey;
     return next();
   } catch (err) {
     console.error('[universalApiKeyValidator]', err.message);
     if (!res.headersSent) {
-      return res.status(500).json({
-        error: {
-          message: 'API key validation failed.',
-          type: 'auth_failed',
-        },
-      });
+      return sendOpenAiError(res, 500, 'auth_failed', 'API key validation failed.');
     }
   }
 }
 
-async function handleCommercialMeteredChatCompletions(req, res, next) {
-  if (req.userTier !== 'GOD_MODE_OWNER' && req.userTier !== 'PUBLIC_CLIENT') {
-    return next();
-  }
-
-  // God Mode owner keys route to the live Dolphin/RunPod pipeline via handleV1ChatCompletions.
-  if (req.userTier === 'GOD_MODE_OWNER') {
-    return next();
-  }
-
-  try {
-    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-    const inputTokens = calculateTokensFromMessages(messages);
-    const simulatedResponseText = `[Commercial Metered Engine] Placeholder response for ${messages.length} message(s). Estimated input tokens: ${inputTokens}.`;
-    const outputTokens = calculateTokens(simulatedResponseText);
-    const totalTokensBurned = inputTokens + outputTokens;
-
-    let walletBalanceRemaining = req.userTier === 'GOD_MODE_OWNER' ? null : req.currentBalance;
-
-    if (req.userTier === 'PUBLIC_CLIENT') {
-      walletBalanceRemaining = await deductPublicClientTokenBalanceByEmail(
-        req.userEmail,
-        totalTokensBurned,
-        req.currentBalance
-      );
-      req.currentBalance = walletBalanceRemaining;
-    }
-
-    const completionId = `chatcmpl_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
-    const responseModel =
-      typeof req.body?.model === 'string' && req.body.model.trim()
-        ? req.body.model.trim()
-        : COMMERCIAL_DEFAULT_MODEL;
-
-    return res.status(200).json({
-      id: completionId,
-      object: 'chat.completion',
-      created: Math.floor(Date.now() / 1000),
-      model: responseModel,
-      choices: [
-        {
-          index: 0,
-          message: {
-            role: 'assistant',
-            content: simulatedResponseText,
-          },
-          finish_reason: 'stop',
-        },
-      ],
-      usage: {
-        prompt_tokens: inputTokens,
-        completion_tokens: outputTokens,
-        total_tokens: totalTokensBurned,
-      },
-      system_meta: {
-        user_tier: req.userTier,
-        user_email: req.userEmail || null,
-        wallet_balance_remaining: walletBalanceRemaining,
-        tokens_burned: totalTokensBurned,
-      },
-    });
-  } catch (err) {
-    console.error('[commercial-metered-chat]', err.message);
-    if (!res.headersSent) {
-      return res.status(500).json({
-        error: {
-          message: err.message || 'Chat completion failed.',
-          type: 'completion_failed',
-        },
-      });
-    }
-  }
-}
-
-async function commercialApiAuthMiddleware(req, res, next) {
-  const apiKey = extractCommercialApiKey(req);
-  const isGodModeOwnerKey =
-    isValidMasterOwnerKey(req) ||
-    (GOD_MODE_MASTER_KEY && apiKey === GOD_MODE_MASTER_KEY) ||
-    (apiKey && apiKey.startsWith('sk_god_master_'));
-
-  if (isGodModeOwnerKey) {
-    applyMasterOwnerSession(req);
-    req.commercialAccess = {
-      tier: 'god_mode_owner',
-      metered: false,
-      uncensored: true,
-      bypassBalance: true,
-    };
-    console.log('[commercial-api] MASTER_OWNER God Mode bypass — uncapped free access.');
-    return next();
-  }
-
-  if (!apiKey) {
+async function attachExternalCommercialClientContext(req, res, next) {
+  if (req.userTier !== 'PUBLIC_CLIENT' || !req.externalApiKey) {
     return sendOpenAiError(
       res,
       401,
       'invalid_api_key',
-      'Commercial API key required. Provide Authorization: Bearer <api_key> or x-api-key header.'
-    );
-  }
-
-  const dbHealthy = await verifyDatabaseHealth('commercial-api-auth');
-  if (!dbHealthy) {
-    return sendOpenAiError(
-      res,
-      503,
-      'database_unavailable',
-      'Supabase PostgreSQL is required for paid API metering and is currently unreachable.'
+      'A valid sk_client_ API key is required for external integrations.'
     );
   }
 
   try {
-    const user = await findUserByApiKey(apiKey);
+    const user = await findUserByApiKey(req.externalApiKey);
     if (!user) {
       return sendOpenAiError(res, 401, 'invalid_api_key', 'Invalid commercial API key.');
     }
@@ -2740,8 +2632,8 @@ async function commercialApiAuthMiddleware(req, res, next) {
 
     return next();
   } catch (err) {
-    console.error('[commercial-api] Auth failed:', err.message);
-    return sendOpenAiError(res, 500, 'commercial_auth_failed', 'Failed to authenticate commercial API request.');
+    console.error('[external-commercial-context]', err.message);
+    return sendOpenAiError(res, 500, 'commercial_auth_failed', 'Failed to authenticate external API request.');
   }
 }
 
@@ -3337,27 +3229,26 @@ app.post('/api/user/generate-api-key', (req, res) => {
 app.post(
   '/api/v1/chat/completions',
   universalApiKeyValidator,
-  handleCommercialMeteredChatCompletions
-);
-
-app.post('/api/v1/chat/completions', commercialApiAuthMiddleware, async (req, res) => {
-  try {
-    await handleV1ChatCompletions(req, res);
-  } catch (err) {
-    console.error('[commercial-api/v1/chat/completions]', err.message);
-    if (!res.headersSent) {
-      return sendOpenAiError(res, 500, 'chat_completion_failed', err.message || 'Chat completion failed.');
-    }
-    if (!res.writableEnded) {
-      writeOpenAiStreamChunk(res, `\n[error] ${err.message || 'Chat completion failed.'}`, {
-        model: COMMERCIAL_DEFAULT_MODEL,
-        finish: true,
-      });
-      res.write('data: [DONE]\n\n');
-      res.end();
+  attachExternalCommercialClientContext,
+  async (req, res) => {
+    try {
+      await handleV1ChatCompletions(req, res);
+    } catch (err) {
+      console.error('[external-api/v1/chat/completions]', err.message);
+      if (!res.headersSent) {
+        return sendOpenAiError(res, 500, 'chat_completion_failed', err.message || 'Chat completion failed.');
+      }
+      if (!res.writableEnded) {
+        writeOpenAiStreamChunk(res, `\n[error] ${err.message || 'Chat completion failed.'}`, {
+          model: COMMERCIAL_DEFAULT_MODEL,
+          finish: true,
+        });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
     }
   }
-});
+);
 
 app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res) => {
   try {

@@ -264,6 +264,59 @@
     }
     .god-file-item { cursor: pointer; }
     .god-file-item.active { background: rgba(0, 122, 204, 0.22); color: #9cdcfe; }
+    .god-fs-tree-root { padding: 2px 0 8px; }
+    .god-fs-tree-list {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .god-fs-tree-item { margin: 0; padding: 0; }
+    .god-fs-tree-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      width: 100%;
+      padding: 3px 6px;
+      border-radius: 4px;
+      border: 0;
+      background: transparent;
+      color: #cccccc;
+      font-size: 11px;
+      text-align: left;
+      cursor: pointer;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    .god-fs-tree-row:hover { background: rgba(255, 255, 255, 0.06); }
+    .god-fs-tree-row.active {
+      background: rgba(0, 122, 204, 0.22);
+      color: #9cdcfe;
+    }
+    .god-fs-tree-row-folder { color: #dcb67a; font-weight: 600; }
+    .god-fs-tree-label {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .god-fs-tree-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 16px;
+      height: 16px;
+      flex-shrink: 0;
+    }
+    .god-fs-tree-icon svg { width: 16px; height: 16px; display: block; }
+    .god-fs-tree-children { padding-left: 14px; }
+    .god-fs-tree-children.collapsed { display: none; }
+    .god-fs-tree-chevron {
+      width: 10px;
+      flex-shrink: 0;
+      color: #858585;
+      font-size: 10px;
+      text-align: center;
+    }
     .god-terminal-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .god-terminal-line span { white-space: pre-wrap; }
     #godMonacoEditor {
@@ -653,6 +706,9 @@
     let godMonacoEditor = null;
     let godMonacoDiffEditor = null;
     let godMonacoSuppressDirty = false;
+    let localDirectoryHandle = null;
+    let monacoEditorInstance = null;
+    let activeLocalFilePath = null;
 
     const el = {
       apiBase: document.getElementById('apiBase'),
@@ -1147,6 +1203,185 @@
       return fragment;
     }
 
+    const GOD_FS_FOLDER_ICON_SVG =
+      '<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M1.5 3.5A1 1 0 0 1 2.5 2.5H6l1.2 1.2H13.5A1 1 0 0 1 14.5 4.5v8a1 1 0 0 1-1 1H2.5a1 1 0 0 1-1-1v-8Z" fill="#C09553"/><path d="M2 4h12v8.5a.5.5 0 0 1-.5.5H2.5a.5.5 0 0 1-.5-.5V4Z" fill="#E8C47C"/></svg>';
+
+    function getGodFsFileIconSvg(fileName) {
+      const ext = String(fileName || '').split('.').pop()?.toLowerCase() || '';
+      const palette = {
+        js: '#F7DF1E',
+        ts: '#3178C6',
+        tsx: '#61DAFB',
+        jsx: '#61DAFB',
+        json: '#CBCB41',
+        html: '#E44D26',
+        css: '#264DE4',
+        md: '#519ABA',
+        py: '#3776AB',
+        sql: '#E38C00',
+        env: '#858585',
+      };
+      const fill = palette[ext] || '#9CDCFE';
+      return `<svg viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 1.5h7l3 3V14a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5Z" fill="#2D2D2D" stroke="#3C3C3C"/><path d="M10 1.5V5h3" fill="#252526"/><rect x="4.5" y="8" width="7" height="1.2" rx=".6" fill="${fill}"/><rect x="4.5" y="10.3" width="5" height="1.2" rx=".6" fill="#858585"/></svg>`;
+    }
+
+    function createGodFsTreeIcon(kind, fileName) {
+      const icon = document.createElement('span');
+      icon.className = 'god-fs-tree-icon';
+      icon.setAttribute('aria-hidden', 'true');
+      icon.innerHTML = kind === 'directory' ? GOD_FS_FOLDER_ICON_SVG : getGodFsFileIconSvg(fileName);
+      return icon;
+    }
+
+    function highlightActiveLocalTreeFile(filePath) {
+      activeLocalFilePath = filePath || null;
+      if (!el.godFileExplorer) return;
+      el.godFileExplorer.querySelectorAll('.god-fs-tree-row-file').forEach((row) => {
+        row.classList.toggle('active', row.dataset.path === filePath);
+      });
+    }
+
+    async function openLocalFileFromHandle(fileHandle, filePath) {
+      if (state.godWorkspace.diffReview.active) {
+        rejectGodDiffReview();
+      }
+
+      try {
+        const file = await fileHandle.getFile();
+        const fileContent = await file.text();
+
+        activeLocalFilePath = filePath;
+        state.godWorkspace.activeFile = filePath;
+        state.godWorkspace.files[filePath] = fileContent;
+        state.godWorkspace.localFileHandles[filePath] = fileHandle;
+        resetGodStreamDiffBaseline();
+
+        if (monacoEditorInstance) {
+          monacoEditorInstance.setValue(fileContent);
+        }
+        setGodMonacoContent(fileContent, filePath);
+        highlightActiveLocalTreeFile(filePath);
+        appendGodTerminalLog(`Opened local file: ${filePath}`, 'info');
+      } catch (err) {
+        if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+          showToast('File read permission denied. Re-sync the local folder.', 'error');
+          appendGodTerminalLog(`Local file access denied: ${filePath}`, 'warn');
+          return;
+        }
+        showToast(err.message || `Failed to open ${filePath}`, 'error');
+        appendGodTerminalLog(`Local open failed (${filePath}): ${err.message}`, 'warn');
+      }
+    }
+
+    async function renderDirectoryTree(dirHandle, containerEl, basePath = '') {
+      if (!dirHandle || !containerEl) return;
+
+      const list = document.createElement('ul');
+      list.className = 'god-fs-tree-list';
+      containerEl.appendChild(list);
+
+      let childEntries = [];
+      try {
+        for await (const [name, handle] of dirHandle.entries()) {
+          childEntries.push({ name, handle });
+        }
+      } catch (err) {
+        if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+          const denied = document.createElement('p');
+          denied.className = 'text-[#f48771] px-2 py-1 text-[10px]';
+          denied.textContent = 'Directory read permission denied.';
+          containerEl.appendChild(denied);
+          throw err;
+        }
+        throw err;
+      }
+
+      childEntries.sort((a, b) => {
+        if (a.handle.kind !== b.handle.kind) return a.handle.kind === 'directory' ? -1 : 1;
+        return a.name.localeCompare(b.name);
+      });
+
+      for (const { name, handle } of childEntries) {
+        const relPath = basePath ? `${basePath}/${name}` : name;
+        const item = document.createElement('li');
+        item.className = 'god-fs-tree-item';
+
+        if (handle.kind === 'directory') {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = 'god-fs-tree-row god-fs-tree-row-folder';
+          row.title = relPath;
+
+          const chevron = document.createElement('span');
+          chevron.className = 'god-fs-tree-chevron';
+          chevron.textContent = '▸';
+
+          row.appendChild(chevron);
+          row.appendChild(createGodFsTreeIcon('directory', name));
+
+          const label = document.createElement('span');
+          label.className = 'god-fs-tree-label';
+          label.textContent = name;
+          row.appendChild(label);
+
+          const childHost = document.createElement('div');
+          childHost.className = 'god-fs-tree-children collapsed';
+
+          let expanded = false;
+          let loaded = false;
+
+          row.addEventListener('click', async () => {
+            expanded = !expanded;
+            chevron.textContent = expanded ? '▾' : '▸';
+            childHost.classList.toggle('collapsed', !expanded);
+
+            if (expanded && !loaded) {
+              try {
+                await renderDirectoryTree(handle, childHost, relPath);
+                loaded = true;
+              } catch (err) {
+                expanded = false;
+                loaded = false;
+                chevron.textContent = '▸';
+                childHost.classList.add('collapsed');
+                childHost.innerHTML = '';
+                showToast(err.message || `Failed to read folder: ${name}`, 'error');
+              }
+            }
+          });
+
+          item.appendChild(row);
+          item.appendChild(childHost);
+        } else {
+          const row = document.createElement('button');
+          row.type = 'button';
+          row.className = `god-fs-tree-row god-fs-tree-row-file${
+            activeLocalFilePath === relPath ? ' active' : ''
+          }`;
+          row.dataset.path = relPath;
+          row.title = relPath;
+
+          const spacer = document.createElement('span');
+          spacer.className = 'god-fs-tree-chevron';
+          spacer.textContent = '';
+          row.appendChild(spacer);
+          row.appendChild(createGodFsTreeIcon('file', name));
+
+          const label = document.createElement('span');
+          label.className = 'god-fs-tree-label';
+          label.textContent = name;
+          row.appendChild(label);
+
+          state.godWorkspace.localFileHandles[relPath] = handle;
+          row.addEventListener('click', () => openLocalFileFromHandle(handle, relPath));
+
+          item.appendChild(row);
+        }
+
+        list.appendChild(item);
+      }
+    }
+
     async function scanLocalGodDirectory(dirHandle, basePath = '') {
       const entries = [];
       const handles = {};
@@ -1176,24 +1411,29 @@
 
       try {
         const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        localDirectoryHandle = dirHandle;
         state.godWorkspace.localDirHandle = dirHandle;
         state.godWorkspace.localDirName = dirHandle.name;
         state.godWorkspace.expandedDirs.add('');
-
-        const { entries, handles } = await scanLocalGodDirectory(dirHandle);
-        state.godWorkspace.localTreeEntries = entries;
-        state.godWorkspace.localFileHandles = handles;
+        activeLocalFilePath = null;
 
         if (el.godLocalFolderBadge) {
           el.godLocalFolderBadge.textContent = `Local: ${dirHandle.name}`;
           el.godLocalFolderBadge.title = dirHandle.name;
         }
 
-        renderGodFileExplorer();
+        const { entries, handles } = await scanLocalGodDirectory(dirHandle);
+        state.godWorkspace.localTreeEntries = entries;
+        state.godWorkspace.localFileHandles = handles;
+
+        await renderGodFileExplorer();
         appendGodTerminalLog(`Local folder synced: ${dirHandle.name} (${entries.length} entries)`, 'info');
         showToast(`Local workspace synced: ${dirHandle.name}`, 'success');
       } catch (err) {
-        if (err?.name === 'AbortError') return;
+        if (err?.name === 'AbortError') {
+          appendGodTerminalLog('Local folder sync cancelled by user.', 'info');
+          return;
+        }
         if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
           showToast(
             'Folder permission denied. Re-authorize with Sync Local Folder in Chrome or Edge.',
@@ -1532,6 +1772,7 @@
           scrollBeyondLastLine: false,
           wordWrap: 'on',
         });
+        monacoEditorInstance = godMonacoEditor;
         godMonacoEditor.onDidChangeModelContent(() => {
           if (godMonacoSuppressDirty) return;
           state.godWorkspace.monacoDirty = true;
@@ -1554,7 +1795,7 @@
       });
     }
 
-    function renderGodFileExplorer() {
+    async function renderGodFileExplorer() {
       if (!el.godFileExplorer) return;
       el.godFileExplorer.innerHTML = '';
 
@@ -1565,7 +1806,7 @@
         path,
       }));
 
-      const hasLocal = localEntries.length > 0;
+      const hasLocal = Boolean(localDirectoryHandle) || localEntries.length > 0;
       const hasServer = serverEntries.length > 0;
       const hasMemoryOnly = memoryPaths.some(
         (entry) =>
@@ -1579,7 +1820,25 @@
         return;
       }
 
-      if (hasLocal) {
+      if (localDirectoryHandle) {
+        const label = document.createElement('div');
+        label.className = 'god-explorer-section-label';
+        label.textContent = `Local · ${state.godWorkspace.localDirName || localDirectoryHandle.name || 'synced'}`;
+        el.godFileExplorer.appendChild(label);
+
+        const treeRoot = document.createElement('div');
+        treeRoot.className = 'god-fs-tree-root';
+        treeRoot.id = 'godLocalDirectoryTree';
+        el.godFileExplorer.appendChild(treeRoot);
+
+        try {
+          await renderDirectoryTree(localDirectoryHandle, treeRoot);
+        } catch (err) {
+          if (err?.name !== 'NotAllowedError' && err?.name !== 'SecurityError') {
+            appendGodTerminalLog(`Directory tree render failed: ${err.message}`, 'warn');
+          }
+        }
+      } else if (hasLocal) {
         const label = document.createElement('div');
         label.className = 'god-explorer-section-label';
         label.textContent = `Local · ${state.godWorkspace.localDirName || 'synced'}`;
@@ -1618,12 +1877,27 @@
 
       state.godWorkspace.activeFile = filePath;
       resetGodStreamDiffBaseline();
-      renderGodFileExplorer();
+
+      const localHandle = state.godWorkspace.localFileHandles[filePath];
+      if (localHandle && localDirectoryHandle) {
+        await openLocalFileFromHandle(localHandle, filePath);
+        return;
+      }
+
+      if (localDirectoryHandle) {
+        highlightActiveLocalTreeFile(filePath);
+      } else {
+        renderGodFileExplorer();
+      }
 
       const localText = await readLocalGodFileText(filePath);
       if (localText != null) {
         state.godWorkspace.files[filePath] = localText;
+        if (monacoEditorInstance) {
+          monacoEditorInstance.setValue(localText);
+        }
         setGodMonacoContent(localText, filePath);
+        highlightActiveLocalTreeFile(filePath);
         appendGodTerminalLog(`Opened local file: ${filePath}`, 'info');
         return;
       }
@@ -1977,96 +2251,74 @@
     }
 
     async function sendChatPrompt() {
-      if (state.commercialChat.walletExhausted) {
-        showToast('Wallet balance exhausted. Please recharge your tokens.', 'warn');
-        return;
-      }
-
       const prompt = el.chatInput.value.trim();
       if (!prompt) {
         showToast('Enter a prompt before executing.', 'warn');
         return;
       }
 
-      const bearerToken = getCommercialChatBearerToken();
-      if (!bearerToken) {
-        showToast(
-          'Add a commercial API key (sk_client_...) in Developer API Settings, or unlock God Mode with sk_god_master_...',
-          'warn'
-        );
-        return;
-      }
-
       appendChatMessage('user', prompt, ['Outbound Request']);
       el.chatInput.value = '';
       el.sendChatBtn.disabled = true;
-
-      state.commercialChat.messages.push({ role: 'user', content: prompt });
-      const assistantNode = appendStreamingAssistantMessage(['Commercial Metered API']);
+      const assistantNode = appendStreamingAssistantMessage(['SSE Stream']);
 
       try {
-        const response = await fetch(`${getApiBase()}/api/v1/chat/completions`, {
+        const response = await fetch(`${getApiBase()}/api/chat`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${bearerToken}`,
+            ...getClientHeaders(),
+            Accept: 'text/event-stream',
           },
-          body: JSON.stringify({
-            model: 'dolphin-llama3',
-            stream: false,
-            messages: state.commercialChat.messages.slice(-24),
-          }),
+          body: JSON.stringify(withRegisteredEmail({
+            prompt,
+            stream: true,
+          })),
         });
 
-        let payload = {};
-        try {
-          payload = await response.json();
-        } catch {
-          payload = { message: `Chat failed with status ${response.status}` };
-        }
+        const contentType = response.headers.get('content-type') || '';
 
-        if (response.status === 402) {
-          assistantNode.wrapper.remove();
-          state.commercialChat.messages.pop();
-          appendWalletExhaustedBanner();
-          showToast('Wallet balance exhausted. Please recharge your tokens.', 'warn');
+        if (!response.ok && !contentType.includes('text/event-stream')) {
+          let payload = {};
+          try {
+            payload = await response.json();
+          } catch {
+            payload = { message: `Chat failed with status ${response.status}` };
+          }
+
+          if (handlePaywallRedirect(response, payload)) {
+            assistantNode.wrapper.remove();
+            return;
+          }
+
+          if (await handleVerificationRequired(response, payload)) {
+            assistantNode.wrapper.remove();
+            return;
+          }
+
+          assistantNode.body.textContent = payload.message || `Error ${response.status}`;
+          appendAssistantTags(assistantNode.bubble, [`Error ${response.status}`]);
+          showToast(payload.message || 'Chat execution failed.', 'error');
           return;
         }
 
-        if (!response.ok) {
-          state.commercialChat.messages.pop();
-          const errText =
-            payload?.error?.message || payload?.message || `Chat failed with status ${response.status}`;
-          assistantNode.body.textContent = errText;
-          appendAssistantTags(assistantNode.bubble, [`Error ${response.status}`, 'Commercial v1']);
-          showToast(errText, 'error');
-          return;
-        }
+        const { meta, fullText, truncated } = await consumeSseChatStream(response, assistantNode, {
+          onMeta: (streamMeta) => {
+            if (typeof streamMeta.creditsUsed === 'number' && typeof streamMeta.creditLimit === 'number') {
+              el.creditHint.textContent = `${streamMeta.creditsUsed}/${streamMeta.creditLimit} used today`;
+            }
+          },
+        });
 
-        const assistantText = payload?.choices?.[0]?.message?.content || '';
-        assistantNode.body.textContent = assistantText;
-        if (assistantText) {
-          state.commercialChat.messages.push({ role: 'assistant', content: assistantText });
-        }
+        appendAssistantTags(assistantNode.bubble, buildResponseTags(meta, fullText));
+        if (truncated) appendTruncationBadge(assistantNode.bubble);
 
-        updateWalletFromSystemMeta(payload.system_meta);
-
-        const tags = ['Commercial v1'];
-        if (payload.system_meta?.user_tier) tags.push(`Tier: ${payload.system_meta.user_tier}`);
-        if (payload.usage?.total_tokens != null) tags.push(`${payload.usage.total_tokens} tokens burned`);
-        appendAssistantTags(assistantNode.bubble, tags);
-
-        showToast('Commercial chat response received.', 'success');
+        await loadSessionTrialState();
+        showToast('Chat response completed.', 'success');
       } catch (error) {
-        state.commercialChat.messages.pop();
-        assistantNode.wrapper.remove();
-        const errText = error.message || 'Network failure during chat execution.';
-        appendChatMessage('assistant', errText, ['Network Error']);
-        showToast(errText, 'error');
+        assistantNode.body.textContent = error.message || 'Network failure during chat execution.';
+        showToast(error.message || 'Chat execution failed.', 'error');
       } finally {
-        if (!state.commercialChat.walletExhausted) {
-          el.sendChatBtn.disabled = false;
-        }
+        el.sendChatBtn.disabled = false;
       }
     }
 
@@ -2107,34 +2359,26 @@
         return;
       }
 
-      const bearerToken = getGodWorkspaceChatBearerToken();
-      if (!bearerToken) {
-        showToast('Add a God Mode API key (sk_god_master_...) or unlock with your master admin key.', 'warn');
-        return;
-      }
-
       appendGodDirectChatEntry('user', prompt);
       el.godDirectChatInput.value = '';
       el.godDirectChatSendBtn.disabled = true;
       resetGodStreamDiffBaseline();
-      appendGodTerminalLog(`Prompt dispatched → ${getApiBase()}/api/v1/chat/completions`, 'info');
+      appendGodTerminalLog(`Prompt dispatched → ${getApiBase()}/api/chat`, 'info');
 
       const assistantNode = appendGodDirectChatEntry('assistant', '');
-      const outboundMessages = buildGodDirectChatMessages(prompt);
+      const contextualPrompt = `${buildGodWorkspaceContextSystemMessage()}\n\nUser request:\n${prompt}`;
 
       try {
-        const response = await fetch(`${getApiBase()}/api/v1/chat/completions`, {
+        const response = await fetch(`${getApiBase()}/api/chat`, {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${bearerToken}`,
+            ...getAdminHeaders(),
             Accept: 'text/event-stream',
           },
-          body: JSON.stringify({
-            model: 'dolphin-llama3',
+          body: JSON.stringify(withRegisteredEmail({
+            prompt: contextualPrompt,
             stream: true,
-            messages: outboundMessages,
-          }),
+          })),
         });
 
         const contentType = response.headers.get('content-type') || '';
@@ -2146,50 +2390,93 @@
           } catch {
             payload = { message: `God Mode chat failed (${response.status})` };
           }
-          const errText =
-            payload?.error?.message || payload?.message || `Error ${response.status}`;
-          assistantNode.body.textContent = errText;
-          showToast(errText, 'error');
+          assistantNode.body.textContent = payload.message || `Error ${response.status}`;
+          showToast(payload.message || 'God Mode chat failed.', 'error');
           return;
         }
 
-        if (response.status === 402) {
-          assistantNode.body.textContent = 'Wallet balance exhausted for this API key.';
-          showToast('Wallet balance exhausted.', 'warn');
-          return;
-        }
+        if (contentType.includes('text/event-stream') && response.body) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let fullText = '';
 
-        const renderStreamDelta = (fullText) => {
-          const streamView = applyGodWorkspaceStream(fullText);
-          assistantNode.body.textContent = streamView.hasMonacoContent
-            ? (streamView.chatDisplay || 'Writing to Monaco workspace…')
-            : (streamView.chatDisplay || fullText);
-          el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
-          layoutGodMonacoSurfaces();
-        };
+          const ingestSseFrames = (frames) => {
+            for (const frame of frames) {
+              if (!frame.trim()) continue;
+              const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
+              for (const line of frameLines) {
+                const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
+                if (!payloadRaw || payloadRaw === '[DONE]') continue;
 
-        const fullText = await ingestOpenAiSseStream(response, (accumulated) => {
-          renderStreamDelta(accumulated);
-        });
+                let payload;
+                try {
+                  payload = JSON.parse(payloadRaw);
+                } catch {
+                  continue;
+                }
 
-        if (!fullText.trim()) {
-          assistantNode.body.textContent = 'No response content returned from Dolphin engine.';
+                if (payload.error) {
+                  throw new Error(payload.message || 'SSE stream reported an error.');
+                }
+
+                if (payload.type === 'meta') continue;
+
+                if (payload.content && payload.content !== TRUNCATION_BADGE && !payload.truncated) {
+                  const chunk = payload.content.includes(TRUNCATION_BADGE)
+                    ? payload.content.replace(TRUNCATION_BADGE, '')
+                    : payload.content;
+                  fullText += chunk;
+                  const streamView = applyGodWorkspaceStream(fullText);
+                  assistantNode.body.textContent = streamView.hasMonacoContent
+                    ? (streamView.chatDisplay || 'Writing to Monaco workspace…')
+                    : (streamView.chatDisplay || fullText);
+                  el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
+                  layoutGodMonacoSurfaces();
+                }
+              }
+            }
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (value) {
+              buffer += decoder.decode(value, { stream: true });
+              const frames = buffer.split('\n\n');
+              buffer = frames.pop() || '';
+              ingestSseFrames(frames);
+            }
+            if (done) {
+              buffer += decoder.decode(undefined, { stream: false });
+              if (buffer.trim()) {
+                ingestSseFrames([buffer]);
+              }
+              break;
+            }
+          }
+
+          if (!fullText.trim()) {
+            assistantNode.body.textContent = 'No response content returned from model.';
+          } else {
+            const finalView = applyGodWorkspaceStream(fullText);
+            assistantNode.body.textContent = finalView.hasMonacoContent
+              ? (finalView.chatDisplay || 'Workspace files updated — see Monaco editor.')
+              : (finalView.chatDisplay || fullText);
+
+            state.godWorkspace.chatMessages.push({ role: 'user', content: prompt });
+            state.godWorkspace.chatMessages.push({ role: 'assistant', content: fullText });
+
+            await refreshGodFileExplorer();
+            layoutGodMonacoSurfaces();
+            appendGodTerminalLog('God Mode stream completed — workspace synced.', 'info');
+          }
         } else {
-          const finalView = applyGodWorkspaceStream(fullText);
-          const chatDisplay = finalView.hasMonacoContent
-            ? (finalView.chatDisplay || 'Workspace files updated — see Monaco editor.')
-            : (finalView.chatDisplay || fullText);
-          assistantNode.body.textContent = chatDisplay;
-
-          state.godWorkspace.chatMessages.push({ role: 'user', content: prompt });
-          state.godWorkspace.chatMessages.push({ role: 'assistant', content: fullText });
-
-          await refreshGodFileExplorer();
-          layoutGodMonacoSurfaces();
-          appendGodTerminalLog('Dolphin v1 stream completed — workspace synced.', 'info');
+          const payload = await response.json();
+          assistantNode.body.textContent =
+            payload.output || payload.message || JSON.stringify(payload, null, 2);
         }
 
-        showToast('God Mode AI response received.', 'success');
+        showToast('God Mode direct chat completed.', 'success');
       } catch (error) {
         assistantNode.body.textContent = error.message || 'Network failure during God Mode chat.';
         showToast(error.message || 'God Mode chat failed.', 'error');
@@ -2378,23 +2665,11 @@
       return '';
     }
 
-    function getGodWorkspaceChatBearerToken() {
-      const commercial = getCommercialChatBearerToken();
-      if (commercial.startsWith('sk_god_master_')) return commercial;
-
-      if (state.adminUnlocked) {
-        const adminKey = (el.adminKey?.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
-        if (adminKey) return adminKey;
-      }
-
-      return commercial;
-    }
-
     function buildGodWorkspaceContextSystemMessage() {
       const ws = state.godWorkspace;
       const lines = [
         '[AI_UNIVERSE_WORKSPACE_CONTEXT]',
-        `engine_route: POST /api/v1/chat/completions`,
+        `engine_route: POST /api/chat`,
         `model: dolphin-llama3`,
         `mode: god_mode_uncensored`,
         `api_base: ${getApiBase()}`,
@@ -2437,74 +2712,6 @@
       );
 
       return lines.join('\n');
-    }
-
-    function buildGodDirectChatMessages(userPrompt) {
-      return [
-        { role: 'system', content: buildGodWorkspaceContextSystemMessage() },
-        ...state.godWorkspace.chatMessages.slice(-20),
-        { role: 'user', content: userPrompt },
-      ];
-    }
-
-    function extractOpenAiStreamDelta(payload) {
-      if (payload?.error?.message) {
-        throw new Error(payload.error.message);
-      }
-      const delta = payload?.choices?.[0]?.delta?.content;
-      return typeof delta === 'string' ? delta : '';
-    }
-
-    async function ingestOpenAiSseStream(response, onDelta) {
-      if (!response.body) {
-        throw new Error('No response stream returned from AI engine.');
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullText = '';
-
-      const ingestFrames = (frames) => {
-        for (const frame of frames) {
-          if (!frame.trim()) continue;
-          const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
-          for (const line of frameLines) {
-            const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
-            if (!payloadRaw || payloadRaw === '[DONE]') continue;
-
-            let payload;
-            try {
-              payload = JSON.parse(payloadRaw);
-            } catch {
-              continue;
-            }
-
-            const chunk = extractOpenAiStreamDelta(payload);
-            if (chunk) {
-              fullText += chunk;
-              onDelta(fullText, chunk);
-            }
-          }
-        }
-      };
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() || '';
-          ingestFrames(frames);
-        }
-        if (done) {
-          buffer += decoder.decode(undefined, { stream: false });
-          if (buffer.trim()) ingestFrames([buffer]);
-          break;
-        }
-      }
-
-      return fullText;
     }
 
     function persistCommercialApiKey(apiKey) {
@@ -2744,7 +2951,7 @@
       logAdminConsole('SESSION', { status: 'admin_panel_unlocked' });
       initGodMonacoEditor();
       appendGodTerminalLog(`God Mode workspace online · ${getApiBase()}`, 'info');
-      appendGodTerminalLog('AI engine linked · POST /api/v1/chat/completions', 'info');
+      appendGodTerminalLog('AI engine linked · POST /api/chat (God Mode session)', 'info');
       refreshGodFileExplorer();
     }
 
