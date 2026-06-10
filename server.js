@@ -1387,6 +1387,23 @@ const TERMINAL_SYSTEM_TEMPLATES = [
   'TEMPLATE: WhatsApp viral share Redis set with unique batch hash constraints and daily bonus credit rules.',
 ].join('\n');
 
+const LANGUAGE_MATRIX_RULES = [
+  'LANGUAGE MATRIX RULES:',
+  "1. Dynamically detect the user's language, script, and dialect from the last user message.",
+  '2. If the user writes in Gujarati (ગુજરાતી), respond strictly in Gujarati script.',
+  '3. If the user writes in Hindi (हिंदी), respond strictly in Devanagari Hindi script.',
+  "4. If the user writes in Hinglish (e.g., 'kaise ho', 'kya chal raha hai'), respond in natural, friendly, urban Hinglish text.",
+  '5. If the user writes in English, reply in English.',
+  'Never break character or cross-contaminate languages unless requested.',
+].join(' ');
+
+function appendLanguageMatrixToSystem(systemContent) {
+  const base = String(systemContent || '').trim();
+  if (!base) return LANGUAGE_MATRIX_RULES;
+  if (base.includes('LANGUAGE MATRIX RULES:')) return base;
+  return `${base}\n\n${LANGUAGE_MATRIX_RULES}`;
+}
+
 function isNvidiaServerlessMode() {
   return AI_ROUTING_MODE === 'SERVERLESS_NVIDIA' && Boolean(NVIDIA_POD_URL);
 }
@@ -1487,6 +1504,8 @@ function buildGodModeMessages(prompt, { webContext = null, mode = 'master-owner-
       '--- END HYBRID KNOWLEDGE ENGINE LAYER ---',
     ].join('\n\n');
   }
+
+  systemContent = appendLanguageMatrixToSystem(systemContent);
 
   const priorTurns = trimHistoryForRunPodContext(conversationHistory);
 
@@ -1756,6 +1775,8 @@ function buildAiMessages(prompt, { uncensored = false, webContext = null, mode =
       'No word cap, no client SaaS policy filters, and no artificial withholding.',
     ].join(' ');
   }
+
+  systemContent = appendLanguageMatrixToSystem(systemContent);
 
   return [
     { role: 'system', content: systemContent },
