@@ -55,7 +55,58 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
+    .prose-markdown { line-height: 1.65; }
+    .prose-markdown h1, .prose-markdown h2, .prose-markdown h3 { font-weight: 700; margin: 0.75rem 0 0.35rem; }
+    .prose-markdown h1 { font-size: 1.15rem; }
+    .prose-markdown h2 { font-size: 1.05rem; }
+    .prose-markdown h3 { font-size: 0.95rem; }
+    .prose-markdown p { margin: 0.35rem 0; }
+    .prose-markdown ul, .prose-markdown ol { margin: 0.35rem 0 0.35rem 1.1rem; }
+    .prose-markdown code:not(pre code) {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.85em;
+      background: rgba(15, 23, 42, 0.9);
+      border: 1px solid #334155;
+      border-radius: 0.35rem;
+      padding: 0.1rem 0.35rem;
+    }
+    .prose-markdown pre.code-block-frame {
+      position: relative;
+      margin: 0.65rem 0;
+      padding: 0.85rem 0.75rem 0.75rem;
+      border-radius: 0.65rem;
+      border: 1px solid #334155;
+      background: #0b1220;
+      overflow-x: auto;
+    }
+    .copy-code-btn {
+      position: absolute;
+      top: 0.45rem;
+      right: 0.45rem;
+      z-index: 2;
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 0.25rem 0.55rem;
+      border-radius: 0.4rem;
+      border: 1px solid #475569;
+      background: rgba(30, 41, 59, 0.95);
+      color: #e2e8f0;
+      cursor: pointer;
+    }
+    .copy-code-btn:hover { background: #334155; }
+    .conversation-item { border: 1px solid transparent; }
+    #chatHistorySidebar { border-right: 1px solid #1f2937; }
   </style>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-javascript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-typescript.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
 </head>
 <body class="h-full bg-surface text-slate-100 antialiased">
   <div id="app" class="h-full flex flex-col lg:flex-row">
@@ -190,7 +241,19 @@
           </button>
         </div>
 
-        <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-6 py-4 space-y-4"></div>
+        <div class="flex flex-1 min-h-0 overflow-hidden">
+          <aside id="chatHistorySidebar" class="hidden w-56 shrink-0 flex flex-col min-h-0 bg-panel/60">
+            <div class="px-3 py-3 border-b border-edge space-y-2 shrink-0">
+              <p class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Chat History</p>
+              <button id="newConversationBtn" type="button" class="w-full rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-xs py-2 text-slate-200">
+                + New Chat
+              </button>
+            </div>
+            <div id="conversationList" class="chat-scroll flex-1 overflow-y-auto p-2 space-y-1"></div>
+          </aside>
+
+          <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-6 py-4 space-y-4 min-w-0"></div>
+        </div>
 
         <div class="border-t border-edge p-4 bg-panel">
           <div class="flex flex-col gap-3">
@@ -282,6 +345,14 @@
 
     const TRUNCATION_BADGE = '[TRUNCATED_BADGE_ACTIVE]';
     const TWENTY_FOUR_HOURS_MS = 24 * 60 * 60 * 1000;
+    const BROWSER_PROOF_SALT = 'auc-browser-v1';
+
+    let cachedBrowserSessionProof = '';
+    let markdownRenderRaf = 0;
+
+    if (window.marked) {
+      marked.setOptions({ breaks: true, gfm: true });
+    }
 
     const state = {
       activeScreen: 'chat',
@@ -289,6 +360,8 @@
       pricingReason: '',
       sessionMsRemaining: null,
       otpAutoSendAttempted: false,
+      activeConversationId: null,
+      conversations: [],
       developerApi: {
         fullKeyVisible: false,
         tokenBalance: null,
@@ -317,6 +390,9 @@
       trialPaywallAlert: document.getElementById('trialPaywallAlert'),
       trialPaywallTime: document.getElementById('trialPaywallTime'),
       trialUpgradeBtn: document.getElementById('trialUpgradeBtn'),
+      chatHistorySidebar: document.getElementById('chatHistorySidebar'),
+      conversationList: document.getElementById('conversationList'),
+      newConversationBtn: document.getElementById('newConversationBtn'),
       chatTimeline: document.getElementById('chatTimeline'),
       chatInput: document.getElementById('chatInput'),
       sendChatBtn: document.getElementById('sendChatBtn'),
@@ -353,6 +429,27 @@
       return { ...payload, email: getClientEmail() };
     }
 
+    async function buildBrowserSessionProof(email, fingerprint) {
+      if (!email || !fingerprint || !window.crypto?.subtle) return '';
+      const encoder = new TextEncoder();
+      const key = await crypto.subtle.importKey(
+        'raw',
+        encoder.encode(fingerprint),
+        { name: 'HMAC', hash: 'SHA-256' },
+        false,
+        ['sign']
+      );
+      const payload = encoder.encode(`${email.toLowerCase()}:${BROWSER_PROOF_SALT}`);
+      const signature = await crypto.subtle.sign('HMAC', key, payload);
+      return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    async function refreshBrowserSessionProof() {
+      const email = getClientEmail();
+      const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
+      cachedBrowserSessionProof = await buildBrowserSessionProof(email, fingerprint);
+    }
+
     function getClientHeaders() {
       const email = getClientEmail();
       const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
@@ -362,7 +459,131 @@
         'X-Client-Email': email,
         'Client-Email': email,
         'x-device-fingerprint': fingerprint,
+        'x-browser-session-proof': cachedBrowserSessionProof,
+        'x-browser-client': 'AI-Universe-Web/1.0',
       };
+    }
+
+    function attachCopyCodeButtons(container) {
+      if (!container) return;
+      container.querySelectorAll('pre').forEach((pre) => {
+        if (pre.dataset.copyBound === '1') return;
+        pre.dataset.copyBound = '1';
+        pre.classList.add('code-block-frame');
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'copy-code-btn';
+        btn.textContent = 'Copy Code';
+        btn.addEventListener('click', async () => {
+          const code = pre.querySelector('code')?.innerText || pre.innerText;
+          try {
+            await navigator.clipboard.writeText(code);
+            btn.textContent = 'Copied!';
+            setTimeout(() => { btn.textContent = 'Copy Code'; }, 1800);
+          } catch {
+            btn.textContent = 'Failed';
+          }
+        });
+        pre.appendChild(btn);
+      });
+    }
+
+    function renderMarkdownToElement(target, rawText) {
+      if (!target) return;
+      const text = String(rawText || '');
+      if (!text.trim()) {
+        target.textContent = '';
+        return;
+      }
+      if (!window.marked) {
+        target.textContent = text;
+        return;
+      }
+      target.innerHTML = marked.parse(text);
+      attachCopyCodeButtons(target);
+      if (window.Prism) {
+        target.querySelectorAll('pre code').forEach((block) => {
+          Prism.highlightElement(block);
+        });
+      }
+    }
+
+    function scheduleMarkdownRender(target, rawText) {
+      if (markdownRenderRaf) cancelAnimationFrame(markdownRenderRaf);
+      markdownRenderRaf = requestAnimationFrame(() => {
+        renderMarkdownToElement(target, rawText);
+        markdownRenderRaf = 0;
+      });
+    }
+
+    function renderConversationList() {
+      if (!el.conversationList) return;
+      el.conversationList.innerHTML = '';
+      state.conversations.forEach((conversation) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = `conversation-item w-full text-left px-3 py-2 rounded-lg text-xs truncate ${
+          state.activeConversationId === conversation.id
+            ? 'bg-accent/15 border border-accent/30 text-accent'
+            : 'hover:bg-slate-800 text-slate-300'
+        }`;
+        item.textContent = conversation.title || 'Untitled chat';
+        item.title = conversation.title || 'Untitled chat';
+        item.addEventListener('click', () => loadConversationMessages(conversation.id));
+        el.conversationList.appendChild(item);
+      });
+    }
+
+    async function loadConversationList() {
+      try {
+        await refreshBrowserSessionProof();
+        const { response, payload } = await apiRequest('/api/conversations', {
+          method: 'GET',
+          headers: getClientHeaders(),
+        });
+        if (!response.ok) return;
+        state.conversations = payload.conversations || [];
+        renderConversationList();
+        el.chatHistorySidebar?.classList.remove('hidden');
+      } catch {
+        // history load is best-effort
+      }
+    }
+
+    async function loadConversationMessages(conversationId) {
+      if (!conversationId) return;
+      state.activeConversationId = conversationId;
+      renderConversationList();
+
+      try {
+        await refreshBrowserSessionProof();
+        const { response, payload } = await apiRequest(`/api/conversations/${conversationId}/messages`, {
+          method: 'GET',
+          headers: getClientHeaders(),
+        });
+        if (!response.ok) {
+          showToast(payload.message || 'Unable to load conversation.', 'error');
+          return;
+        }
+
+        el.chatTimeline.innerHTML = '';
+        (payload.messages || []).forEach((message) => {
+          const role = message.role === 'user' ? 'user' : 'assistant';
+          const node = createChatBubble(role, message.content || '', []);
+          if (role === 'assistant') {
+            renderMarkdownToElement(node.body, message.content || '');
+          }
+        });
+      } catch (error) {
+        showToast(error.message || 'Conversation load failed.', 'error');
+      }
+    }
+
+    function startNewConversation() {
+      state.activeConversationId = null;
+      renderConversationList();
+      el.chatTimeline.innerHTML = '';
+      appendChatMessage('assistant', 'New conversation started. Ask your first question.', ['Ready']);
     }
 
     function showToast(message, type) {
@@ -417,9 +638,15 @@
       label.className = 'text-[10px] uppercase tracking-wider mb-1 text-slate-400';
       label.textContent = role === 'user' ? 'You' : 'AI Universe';
 
-      const body = document.createElement('p');
-      body.className = 'whitespace-pre-wrap leading-relaxed';
-      body.textContent = content || '';
+      const body = document.createElement('div');
+      body.className = role === 'assistant'
+        ? 'chat-message-body prose-markdown leading-relaxed'
+        : 'chat-message-body whitespace-pre-wrap leading-relaxed';
+      if (role === 'assistant') {
+        renderMarkdownToElement(body, content || '');
+      } else {
+        body.textContent = content || '';
+      }
 
       bubble.appendChild(label);
       bubble.appendChild(body);
@@ -550,6 +777,7 @@
     async function sendOtpCode(options) {
       const silent = options && options.silent;
       try {
+        await refreshBrowserSessionProof();
         const { response, payload } = await apiRequest('/api/send-otp', {
           method: 'POST',
           headers: getClientHeaders(),
@@ -584,6 +812,7 @@
 
       el.verifyOtpBtn.disabled = true;
       try {
+        await refreshBrowserSessionProof();
         const { response, payload } = await apiRequest('/api/verify-otp', {
           method: 'POST',
           headers: getClientHeaders(),
@@ -598,7 +827,9 @@
         hideOtpVerificationPanel();
         state.otpAutoSendAttempted = false;
         showToast(payload.message || 'Email verified successfully.', 'success');
+        await refreshBrowserSessionProof();
         await loadSessionTrialState();
+        await loadConversationList();
       } catch (error) {
         showToast(error.message || 'Verification request failed.', 'error');
       } finally {
@@ -665,6 +896,9 @@
 
           if (payload.type === 'meta') {
             meta = payload;
+            if (payload.conversation_id) {
+              state.activeConversationId = payload.conversation_id;
+            }
             updateTrialPaywallAlert(payload);
             if (options?.onMeta) options.onMeta(payload);
             continue;
@@ -680,14 +914,14 @@
             if (payload.content.includes(TRUNCATION_BADGE)) {
               const clean = payload.content.replace(TRUNCATION_BADGE, '');
               fullText += clean;
-              streamNode.body.textContent = fullText;
+              scheduleMarkdownRender(streamNode.body, fullText);
               truncated = true;
               appendTruncationBadge(streamNode.bubble);
               continue;
             }
 
             fullText += payload.content;
-            streamNode.body.textContent = fullText;
+            scheduleMarkdownRender(streamNode.body, fullText);
             el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
           }
         }
@@ -709,6 +943,7 @@
       const assistantNode = appendStreamingAssistantMessage(['SSE Stream']);
 
       try {
+        await refreshBrowserSessionProof();
         const response = await fetch(`${getApiBase()}/api/chat`, {
           method: 'POST',
           headers: {
@@ -718,6 +953,7 @@
           body: JSON.stringify(withRegisteredEmail({
             prompt,
             stream: true,
+            conversation_id: state.activeConversationId || undefined,
           })),
         });
 
@@ -755,10 +991,12 @@
           },
         });
 
+        renderMarkdownToElement(assistantNode.body, fullText);
         appendAssistantTags(assistantNode.bubble, buildResponseTags(meta, fullText));
         if (truncated) appendTruncationBadge(assistantNode.bubble);
 
         await loadSessionTrialState();
+        await loadConversationList();
         showToast('Chat response completed.', 'success');
       } catch (error) {
         assistantNode.body.textContent = error.message || 'Network failure during chat execution.';
@@ -776,6 +1014,7 @@
         return;
       }
 
+      await refreshBrowserSessionProof();
       const shareBatchHash = generateShareBatchHash();
       const shareText = encodeURIComponent('Join me on AI Universe Core — unlock smarter enterprise AI workflows.');
       const whatsappUrl = `https://wa.me/?text=${shareText}`;
@@ -1030,11 +1269,12 @@
       }
     }
 
-    function saveIdentity() {
+    async function saveIdentity() {
       const savedEmail = el.userEmail.value.trim().toLowerCase();
       localStorage.setItem('userEmail', savedEmail);
       localStorage.setItem(STORAGE_KEYS.email, savedEmail);
       localStorage.setItem(STORAGE_KEYS.fingerprint, el.deviceFingerprint.value.trim());
+      await refreshBrowserSessionProof();
       showToast('Client identity saved for API headers.', 'success');
       refreshDeveloperApiDashboard();
     }
@@ -1087,6 +1327,7 @@
       });
       el.trialUpgradeBtn.addEventListener('click', () => setActiveScreen('pricing'));
       el.whatsappShareBtn.addEventListener('click', trackWhatsappShare);
+      el.newConversationBtn?.addEventListener('click', startNewConversation);
 
       document.querySelectorAll('.pricing-buy').forEach((button) => {
         button.addEventListener('click', () => {
@@ -1137,17 +1378,26 @@
         }
         renderDeveloperApiDashboard(payload);
         updateTrialPaywallAlert(payload);
+        await loadConversationList();
       } catch {
         // session probe is best-effort on boot
       }
     }
 
-    loadPersistedValues();
-    bindEvents();
-    updateTrialPaywallAlert(null);
-    checkHealth();
-    loadSessionTrialState();
-    appendChatMessage('assistant', 'Welcome to AI Universe Core. Configure your email and device fingerprint, then execute your first prompt.', ['Ready']);
+    async function bootDashboard() {
+      loadPersistedValues();
+      bindEvents();
+      updateTrialPaywallAlert(null);
+      await refreshBrowserSessionProof();
+      await checkHealth();
+      await loadSessionTrialState();
+      appendChatMessage('assistant', 'Welcome to AI Universe Core. Configure your email and device fingerprint, then execute your first prompt.', ['Ready']);
+    }
+
+    bootDashboard().catch((error) => {
+      console.error('[boot]', error);
+      showToast('Dashboard initialization encountered an error.', 'error');
+    });
   </script>
 </body>
 </html>

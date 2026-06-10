@@ -43,6 +43,30 @@ CREATE TABLE IF NOT EXISTS api_token_ledger (
 CREATE INDEX IF NOT EXISTS idx_api_token_ledger_user_id ON api_token_ledger(user_id);
 CREATE INDEX IF NOT EXISTS idx_api_token_ledger_created_at ON api_token_ledger(created_at);
 
+-- Public chat history (conversation threads per verified user)
+CREATE TABLE IF NOT EXISTS conversations (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_email VARCHAR(255) NOT NULL,
+  title VARCHAR(255) NOT NULL DEFAULT 'New conversation',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id UUID NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  role VARCHAR(20) NOT NULL CHECK (role IN ('user', 'assistant', 'system')),
+  content TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_conversations_user_email ON conversations(user_email);
+CREATE INDEX IF NOT EXISTS idx_conversations_user_id ON conversations(user_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_updated_at ON conversations(updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_messages_conversation_id ON messages(conversation_id);
+CREATE INDEX IF NOT EXISTS idx_messages_created_at ON messages(created_at);
+
 -- Safe migration for existing deployments (run once if users table already exists)
 ALTER TABLE users ADD COLUMN IF NOT EXISTS api_key VARCHAR(64);
 ALTER TABLE users ADD COLUMN IF NOT EXISTS token_balance BIGINT NOT NULL DEFAULT 0;

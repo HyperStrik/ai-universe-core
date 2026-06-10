@@ -407,6 +407,88 @@ function getClientIdentity(req) {
   };
 }
 
+const BROWSER_SESSION_PROOF_SALT = 'auc-browser-v1';
+
+function buildExpectedBrowserSessionProof(email, deviceFingerprint) {
+  return crypto
+    .createHmac('sha256', String(deviceFingerprint || 'missing'))
+    .update(`${String(email || '').toLowerCase()}:${BROWSER_SESSION_PROOF_SALT}`)
+    .digest('hex');
+}
+
+function timingSafeHexEqual(leftHex, rightHex) {
+  if (!leftHex || !rightHex || typeof leftHex !== 'string' || typeof rightHex !== 'string') {
+    return false;
+  }
+  const left = Buffer.from(leftHex, 'hex');
+  const right = Buffer.from(rightHex, 'hex');
+  if (left.length !== right.length) return false;
+  return crypto.timingSafeEqual(left, right);
+}
+
+function hasBrowserInteractionHeaders(req) {
+  const secFetchMode = String(req.headers['sec-fetch-mode'] || '').toLowerCase();
+  const secFetchSite = String(req.headers['sec-fetch-site'] || '').toLowerCase();
+  const secFetchDest = String(req.headers['sec-fetch-dest'] || '').toLowerCase();
+  const browserClient = String(req.headers['x-browser-client'] || '').trim();
+
+  const validFetchMode = ['cors', 'same-origin', 'navigate', 'no-cors'].includes(secFetchMode);
+  const validFetchSite = ['same-origin', 'same-site', 'cross-site', 'none'].includes(secFetchSite);
+  const validFetchDest = ['empty', 'document', 'iframe'].includes(secFetchDest);
+  const hasOrigin = Boolean(req.headers.origin || req.headers.referer);
+  const hasBrowserClientTag = browserClient.startsWith('AI-Universe-Web/');
+
+  return (validFetchMode && validFetchSite) || (validFetchMode && hasOrigin) || (hasBrowserClientTag && hasOrigin);
+}
+
+function requireBrowserClientProof(req, res, next) {
+  if (isMasterOwnerChatRequest(req) || req.skipDeviceFingerprint) {
+    return next();
+  }
+
+  const { email, deviceFingerprint } = getClientIdentity(req);
+  const submittedProof = String(req.headers['x-browser-session-proof'] || '').trim();
+
+  if (!email || !deviceFingerprint) {
+    return sendError(
+      res,
+      403,
+      'BROWSER_PROOF_REQUIRED',
+      'Browser session verification requires email and device fingerprint headers.'
+    );
+  }
+
+  if (!submittedProof) {
+    return sendError(
+      res,
+      403,
+      'BROWSER_PROOF_REQUIRED',
+      'Missing browser session proof. Use the official web dashboard.'
+    );
+  }
+
+  const expectedProof = buildExpectedBrowserSessionProof(email, deviceFingerprint);
+  if (!timingSafeHexEqual(submittedProof, expectedProof)) {
+    return sendError(
+      res,
+      403,
+      'BROWSER_PROOF_INVALID',
+      'Invalid browser session signature. Direct scripted access is blocked.'
+    );
+  }
+
+  if (!hasBrowserInteractionHeaders(req)) {
+    return sendError(
+      res,
+      403,
+      'BROWSER_HEADERS_REQUIRED',
+      'Request rejected: browser interaction headers missing (anti-bot lock).'
+    );
+  }
+
+  return next();
+}
+
 function resolveSafePath(relativePath) {
   const normalized = path.normalize(relativePath).replace(/^(\.\.(\/|\\|$))+/, '');
   const absolute = path.resolve(PROJECT_ROOT, normalized);
@@ -1181,6 +1263,96 @@ async function syncCreditConsumption(user, usedCount) {
     })
     .eq('id', user.id);
   if (error) console.error('[supabase] Credit sync failed:', error.message);
+}
+
+function deriveConversationTitle(promptText) {
+  const cleaned = String(promptText || '')
+    .trim()
+    .replace(/\s+/g, ' ');
+  if (!cleaned) return 'New conversation';
+  return cleaned.length <= 60 ? cleaned : `${cleaned.slice(0, 57)}...`;
+}
+
+async function resolveOrCreatePublicConversation(user, conversationId, promptText) {
+  const normalizedId = String(conversationId || '').trim();
+
+  if (normalizedId) {
+    const { data, error } = await getSupabase()
+      .from('conversations')
+      .select('id, user_id')
+      .eq('id', normalizedId)
+      .eq('user_email', user.email)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data || data.user_id !== user.id) {
+      const err = new Error('Conversation not found for this account.');
+      err.code = 'CONVERSATION_NOT_FOUND';
+      throw err;
+    }
+    return data.id;
+  }
+
+  const { data, error } = await getSupabase()
+    .from('conversations')
+    .insert({
+      user_id: user.id,
+      user_email: user.email,
+      title: deriveConversationTitle(promptText),
+    })
+    .select('id')
+    .single();
+  if (error) throw error;
+  return data.id;
+}
+
+async function listUserConversations(email, limit = 50) {
+  const { data, error } = await getSupabase()
+    .from('conversations')
+    .select('id, title, created_at, updated_at')
+    .eq('user_email', email)
+    .order('updated_at', { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data || [];
+}
+
+async function getConversationMessagesForUser(conversationId, email) {
+  const { data: conversation, error: conversationError } = await getSupabase()
+    .from('conversations')
+    .select('id')
+    .eq('id', conversationId)
+    .eq('user_email', email)
+    .maybeSingle();
+  if (conversationError) throw conversationError;
+  if (!conversation) return null;
+
+  const { data, error } = await getSupabase()
+    .from('messages')
+    .select('id, role, content, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
+async function persistPublicChatTurn({ conversationId, userId, userPrompt, assistantReply }) {
+  if (!conversationId || !userPrompt || !assistantReply) return;
+
+  const db = getSupabase();
+  const inserts = [
+    { conversation_id: conversationId, role: 'user', content: userPrompt },
+    { conversation_id: conversationId, role: 'assistant', content: assistantReply },
+  ];
+
+  const { error: messageError } = await db.from('messages').insert(inserts);
+  if (messageError) throw messageError;
+
+  const { error: touchError } = await db
+    .from('conversations')
+    .update({ updated_at: new Date().toISOString() })
+    .eq('id', conversationId)
+    .eq('user_id', userId);
+  if (touchError) throw touchError;
 }
 
 async function updateDeviceFingerprint(userId, deviceFingerprint) {
@@ -2256,6 +2428,9 @@ async function streamAiCompletionToClient(res, prompt, options = {}) {
       max_words: applyWordLimit ? MAX_RESPONSE_WORDS : null,
       censored: !uncensored,
       credits_bypassed: meta.creditsBypassed || false,
+      conversation_id: meta.conversation_id || null,
+      creditsUsed: meta.creditsUsed ?? null,
+      creditLimit: meta.creditLimit ?? null,
     });
   }
 
@@ -3056,7 +3231,7 @@ app.get('/health', async (req, res) => {
   res.json({ status: 'healthy', database: 'connected', redis: 'connected' });
 });
 
-app.post('/api/send-otp', authMiddleware, async (req, res) => {
+app.post('/api/send-otp', authMiddleware, requireBrowserClientProof, async (req, res) => {
   if (req.role === 'MASTER_OWNER') {
     return res.json({
       success: true,
@@ -3123,7 +3298,7 @@ app.post('/api/send-otp', authMiddleware, async (req, res) => {
   }
 });
 
-app.post('/api/verify-otp', authMiddleware, async (req, res) => {
+app.post('/api/verify-otp', authMiddleware, requireBrowserClientProof, async (req, res) => {
   if (req.role === 'MASTER_OWNER') {
     return res.json({
       success: true,
@@ -3177,7 +3352,50 @@ app.post('/api/verify-otp', authMiddleware, async (req, res) => {
   }
 });
 
-app.get('/api/user/session', authMiddleware, handleGodModeSession, godModeBypassClientRules, enforceClientRules, async (req, res) => {
+app.get(
+  '/api/conversations',
+  authMiddleware,
+  godModeBypassClientRules,
+  requireBrowserClientProof,
+  enforceClientRules,
+  async (req, res) => {
+    try {
+      const conversations = await listUserConversations(req.user.email);
+      return res.json({ conversations });
+    } catch (err) {
+      console.error('[conversations/list]', err.message);
+      return sendError(res, 500, 'CONVERSATIONS_LIST_FAILED', 'Unable to load conversation history.');
+    }
+  }
+);
+
+app.get(
+  '/api/conversations/:conversationId/messages',
+  authMiddleware,
+  godModeBypassClientRules,
+  requireBrowserClientProof,
+  enforceClientRules,
+  async (req, res) => {
+    try {
+      const conversationId = String(req.params.conversationId || '').trim();
+      if (!conversationId) {
+        return sendError(res, 400, 'CONVERSATION_ID_REQUIRED', 'conversationId is required.');
+      }
+
+      const messages = await getConversationMessagesForUser(conversationId, req.user.email);
+      if (!messages) {
+        return sendError(res, 404, 'CONVERSATION_NOT_FOUND', 'Conversation not found.');
+      }
+
+      return res.json({ conversationId, messages });
+    } catch (err) {
+      console.error('[conversations/messages]', err.message);
+      return sendError(res, 500, 'CONVERSATION_MESSAGES_FAILED', 'Unable to load conversation messages.');
+    }
+  }
+);
+
+app.get('/api/user/session', authMiddleware, handleGodModeSession, godModeBypassClientRules, requireBrowserClientProof, enforceClientRules, async (req, res) => {
   const intercept = getTrialEndingIntercept(req.user);
   const creditsUsed = req.creditsUsed ?? (await getDailyCreditsUsed(req.user.email));
   const creditLimit = req.creditLimit ?? dailyCreditLimit(req.user);
@@ -3252,12 +3470,13 @@ app.post(
 
 app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res) => {
   try {
-    const { prompt, adminDeepScrape } = req.body || {};
+    const { prompt, adminDeepScrape, conversation_id: conversationIdInput } = req.body || {};
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return sendError(res, 400, 'PROMPT_REQUIRED', 'A non-empty prompt is required.');
     }
 
-    let finalPrompt = prompt.trim();
+    const userPrompt = prompt.trim();
+    let finalPrompt = userPrompt;
 
     // MASTER_OWNER fast-path: never invoke clientRules or users-table validation.
     if (isMasterOwnerChatRequest(req)) {
@@ -3267,8 +3486,27 @@ app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res)
       return;
     }
 
+    await new Promise((resolve) => {
+      requireBrowserClientProof(req, res, resolve);
+    });
+    if (res.headersSent) return;
+
     await enforceClientRulesAsync(req, res);
     if (res.headersSent) return;
+
+    let activeConversationId = null;
+    try {
+      activeConversationId = await resolveOrCreatePublicConversation(
+        req.user,
+        conversationIdInput,
+        userPrompt
+      );
+    } catch (convErr) {
+      if (convErr.code === 'CONVERSATION_NOT_FOUND') {
+        return sendError(res, 404, 'CONVERSATION_NOT_FOUND', convErr.message);
+      }
+      console.error('[conversations] resolve failed:', convErr.message);
+    }
 
     const webContext = await fetchWebSearchSnippets(finalPrompt);
     const scopeViolation = detectScopeViolation(finalPrompt, req.user.allowed_info_scope);
@@ -3293,6 +3531,9 @@ app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res)
         responseMode: 'client_sse',
         creditsBypassed: req.effectiveRole === 'OVERRIDE_UNLIMITED',
         trialIntercept: getTrialEndingIntercept(req.user),
+        conversation_id: activeConversationId,
+        creditsUsed: req.creditsUsed,
+        creditLimit: req.creditLimit,
       },
     });
 
@@ -3300,6 +3541,22 @@ app.post('/api/chat', authMiddleware, godModeBypassClientRules, async (req, res)
       const used = await incrementDailyCredits(req.user.email);
       await syncCreditConsumption(req.user, used);
       console.log(`[redis] Credit consumed for ${req.user.email} — ${used}/${req.creditLimit}`);
+    }
+
+    if (
+      activeConversationId &&
+      req.user &&
+      streamResult.completed !== false &&
+      String(streamResult.emittedText || '').trim()
+    ) {
+      persistPublicChatTurn({
+        conversationId: activeConversationId,
+        userId: req.user.id,
+        userPrompt,
+        assistantReply: streamResult.emittedText,
+      }).catch((persistErr) => {
+        console.error('[conversations] async persist failed:', persistErr.message);
+      });
     }
   } catch (err) {
     console.error('[chat]', err.message);
@@ -3343,7 +3600,7 @@ async function deepScrapeRouteHandler(req, res) {
 app.post('/api/deep-scrape', authMiddleware, godModeBypassClientRules, deepScrapeRouteHandler);
 app.post('/deep-scrape', authMiddleware, godModeBypassClientRules, deepScrapeRouteHandler);
 
-app.post('/api/share-viral', authMiddleware, godModeBypassClientRules, enforceClientRules, async (req, res) => {
+app.post('/api/share-viral', authMiddleware, godModeBypassClientRules, requireBrowserClientProof, enforceClientRules, async (req, res) => {
   try {
     const { share_batch_hash: shareBatchHash } = req.body || {};
 
@@ -3372,7 +3629,7 @@ app.post('/api/share-viral', authMiddleware, godModeBypassClientRules, enforceCl
   }
 });
 
-app.post('/api/user/whatsapp-share-track', authMiddleware, godModeBypassClientRules, enforceClientRules, async (req, res) => {
+app.post('/api/user/whatsapp-share-track', authMiddleware, godModeBypassClientRules, requireBrowserClientProof, enforceClientRules, async (req, res) => {
   try {
     const { share_batch_hash: shareBatchHash } = req.body || {};
     if (!shareBatchHash || typeof shareBatchHash !== 'string') {
