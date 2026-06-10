@@ -98,6 +98,11 @@
     .copy-code-btn:hover { background: #334155; }
     .conversation-item { border: 1px solid transparent; }
     .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
+    .prose-markdown table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; }
+    .prose-markdown th, .prose-markdown td { border: 1px solid #334155; padding: 0.35rem 0.5rem; }
+    #leadVerifyModal:not(.hidden) { display: flex; }
+    #leadVerifyModal { align-items: center; justify-content: center; padding: 1rem; }
+    body.modal-open { overflow: hidden; }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
@@ -127,42 +132,23 @@
       <div id="conversationList" class="chat-scroll flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 min-h-0"></div>
 
       <div class="p-3 border-t border-edge space-y-3 shrink-0 mt-auto">
-        <input id="userEmail" type="email" placeholder="Your email address" autocomplete="email" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-
-        <div id="otpVerificationPanel" class="hidden rounded-xl border border-accent2/40 bg-gradient-to-br from-accent2/10 to-slate-900 p-3 space-y-3">
-          <p class="text-xs font-semibold text-accent2">Verify your email</p>
-          <p id="otpVerificationMessage" class="text-xs text-slate-400 leading-relaxed">
-            We sent a 6-digit code to your inbox. Enter it below to start chatting.
-          </p>
-          <input
-            id="otpCodeInput"
-            type="text"
-            inputmode="numeric"
-            maxlength="6"
-            autocomplete="one-time-code"
-            placeholder="000000"
-            class="w-full rounded-lg bg-slate-950 border border-accent2/30 px-3 py-2 text-sm tracking-[0.35em] text-center font-mono focus:outline-none focus:ring-2 focus:ring-accent2"
-          />
-          <button id="verifyOtpBtn" type="button" class="w-full rounded-lg bg-accent2 hover:bg-blue-500 text-white py-2 text-sm font-medium">
-            Verify
-          </button>
-          <button id="resendOtpBtn" type="button" class="w-full text-xs text-accent2 hover:text-blue-300 underline underline-offset-2 py-1">
-            Resend code
-          </button>
+        <div id="userProfileIndicator" class="rounded-lg bg-slate-900/80 border border-edge px-3 py-2 text-xs text-slate-400 truncate" title="Account">
+          Sign in to start chatting
         </div>
-
         <button data-nav="pricing" class="nav-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200">
           Upgrade plan
         </button>
       </div>
+      <input id="userEmail" type="hidden" value="" />
     </aside>
 
     <main class="flex-1 flex flex-col min-h-0 bg-surface">
-      <header class="px-5 py-3 border-b border-edge flex items-center justify-between shrink-0">
-        <div>
+      <header class="px-6 md:px-12 py-3 border-b border-edge flex items-center justify-between shrink-0 gap-3">
+        <div class="min-w-0">
           <h2 id="screenTitle" class="text-base font-semibold">Chat</h2>
           <p id="screenSubtitle" class="text-xs text-slate-500 sr-only">AI assistant</p>
         </div>
+        <p id="headerProfileIndicator" class="text-xs text-slate-400 truncate max-w-[45%] shrink-0 hidden"></p>
         <div id="statusPill" class="hidden" aria-hidden="true"></div>
       </header>
 
@@ -193,11 +179,11 @@
           </button>
         </div>
 
-        <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-4 max-w-3xl mx-auto w-full"></div>
+        <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto w-full px-6 md:px-12 py-6 space-y-4 min-w-0"></div>
 
-        <div class="border-t border-edge p-4 bg-panel shrink-0">
-          <div class="max-w-3xl mx-auto flex items-end gap-3">
-            <textarea id="chatInput" rows="1" placeholder="Message AI Universe…" class="flex-1 resize-none rounded-2xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px] max-h-32"></textarea>
+        <div class="border-t border-edge p-4 md:px-12 bg-panel shrink-0">
+          <div class="w-full flex items-end gap-3">
+            <textarea id="chatInput" rows="1" placeholder="Message AI Universe…" class="flex-1 resize-none rounded-2xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px] max-h-32 w-full"></textarea>
             <button id="sendChatBtn" type="button" class="shrink-0 rounded-xl bg-accent hover:bg-emerald-400 text-black font-semibold px-4 py-3 text-sm">Send</button>
           </div>
         </div>
@@ -255,6 +241,69 @@
     </main>
   </div>
 
+  <div id="leadVerifyModal" class="hidden fixed inset-0 z-[100]" role="dialog" aria-modal="true" aria-labelledby="leadVerifyModalTitle">
+    <div id="leadVerifyModalBackdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+    <div class="relative w-full max-w-md rounded-2xl border border-edge bg-panel shadow-2xl p-6 space-y-4 mx-auto">
+      <div class="space-y-1">
+        <h3 id="leadVerifyModalTitle" class="text-lg font-semibold text-slate-100">Sign in to continue</h3>
+        <p id="leadVerifyModalMessage" class="text-sm text-slate-400">Verify your email to send messages and save your chat history.</p>
+      </div>
+
+      <div class="space-y-2">
+        <label for="modalWhatsappInput" class="block text-xs text-slate-400 uppercase tracking-wide">WhatsApp Number</label>
+        <input
+          id="modalWhatsappInput"
+          type="tel"
+          inputmode="tel"
+          autocomplete="tel"
+          placeholder="+1 555 000 0000"
+          class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+        />
+      </div>
+
+      <div class="space-y-2">
+        <label for="modalEmailInput" class="block text-xs text-slate-400 uppercase tracking-wide">Email Address</label>
+        <div class="flex items-stretch gap-2">
+          <input
+            id="modalEmailInput"
+            type="email"
+            autocomplete="email"
+            placeholder="you@company.com"
+            class="flex-1 min-w-0 rounded-lg bg-slate-900 border border-edge px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+          />
+          <button id="modalSendOtpBtn" type="button" class="shrink-0 rounded-lg bg-accent2 hover:bg-blue-500 text-white font-medium px-4 py-2.5 text-sm">
+            Verify
+          </button>
+        </div>
+      </div>
+
+      <div id="modalOtpStep" class="hidden space-y-2">
+        <label for="modalOtpInput" class="block text-xs text-slate-400 uppercase tracking-wide">Enter 6-digit code</label>
+        <div class="flex items-stretch gap-2">
+          <input
+            id="modalOtpInput"
+            type="text"
+            inputmode="numeric"
+            maxlength="6"
+            autocomplete="one-time-code"
+            placeholder="000000"
+            class="flex-1 rounded-lg bg-slate-950 border border-accent2/30 px-3 py-2.5 text-sm tracking-[0.35em] text-center font-mono focus:outline-none focus:ring-2 focus:ring-accent2"
+          />
+          <button id="modalConfirmOtpBtn" type="button" class="shrink-0 rounded-lg bg-accent hover:bg-emerald-400 text-black font-semibold px-4 py-2.5 text-sm">
+            Confirm
+          </button>
+        </div>
+        <button id="modalResendOtpBtn" type="button" class="text-xs text-accent2 hover:text-blue-300 underline underline-offset-2">
+          Resend code
+        </button>
+      </div>
+
+      <button id="modalCloseBtn" type="button" class="w-full rounded-lg border border-edge py-2 text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+        Cancel
+      </button>
+    </div>
+  </div>
+
   <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
   <script>
@@ -264,6 +313,8 @@
     const STORAGE_KEYS = {
       apiBase: 'auc_api_base',
       email: 'auc_user_email',
+      emailVerified: 'auc_email_verified',
+      whatsapp: 'auc_whatsapp_number',
       fingerprint: 'auc_device_fingerprint',
       commercialApiKey: 'auc_commercial_api_key',
       godMasterApiKey: 'auc_god_master_api_key',
@@ -293,6 +344,7 @@
       otpAutoSendAttempted: false,
       activeConversationId: null,
       conversations: [],
+      pendingChatPrompt: null,
       developerApi: {
         fullKeyVisible: false,
         tokenBalance: null,
@@ -301,11 +353,19 @@
 
     const el = {
       userEmail: document.getElementById('userEmail'),
-      otpVerificationPanel: document.getElementById('otpVerificationPanel'),
-      otpVerificationMessage: document.getElementById('otpVerificationMessage'),
-      otpCodeInput: document.getElementById('otpCodeInput'),
-      verifyOtpBtn: document.getElementById('verifyOtpBtn'),
-      resendOtpBtn: document.getElementById('resendOtpBtn'),
+      userProfileIndicator: document.getElementById('userProfileIndicator'),
+      headerProfileIndicator: document.getElementById('headerProfileIndicator'),
+      leadVerifyModal: document.getElementById('leadVerifyModal'),
+      leadVerifyModalBackdrop: document.getElementById('leadVerifyModalBackdrop'),
+      leadVerifyModalMessage: document.getElementById('leadVerifyModalMessage'),
+      modalWhatsappInput: document.getElementById('modalWhatsappInput'),
+      modalEmailInput: document.getElementById('modalEmailInput'),
+      modalSendOtpBtn: document.getElementById('modalSendOtpBtn'),
+      modalOtpStep: document.getElementById('modalOtpStep'),
+      modalOtpInput: document.getElementById('modalOtpInput'),
+      modalConfirmOtpBtn: document.getElementById('modalConfirmOtpBtn'),
+      modalResendOtpBtn: document.getElementById('modalResendOtpBtn'),
+      modalCloseBtn: document.getElementById('modalCloseBtn'),
       screenTitle: document.getElementById('screenTitle'),
       screenSubtitle: document.getElementById('screenSubtitle'),
       statusPill: document.getElementById('statusPill'),
@@ -337,13 +397,102 @@
     }
 
     function getClientEmail() {
-      const fromInput = (el.userEmail?.value || '').trim().toLowerCase();
-      if (fromInput) return fromInput;
+      const fromHidden = (el.userEmail?.value || '').trim().toLowerCase();
+      if (fromHidden) return fromHidden;
+
+      const fromModal = (el.modalEmailInput?.value || '').trim().toLowerCase();
+      if (fromModal) return fromModal;
 
       const fromStorage = (localStorage.getItem(STORAGE_KEYS.email) || '').trim().toLowerCase();
       if (fromStorage) return fromStorage;
 
       return REGISTERED_EMAIL;
+    }
+
+    function isValidEmailAddress(email) {
+      return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+    }
+
+    function isUserVerified() {
+      return localStorage.getItem(STORAGE_KEYS.emailVerified) === 'true'
+        && Boolean((localStorage.getItem(STORAGE_KEYS.email) || '').trim());
+    }
+
+    function markUserVerified(email) {
+      const normalized = String(email || getClientEmail()).trim().toLowerCase();
+      if (!normalized) return;
+      localStorage.setItem(STORAGE_KEYS.email, normalized);
+      localStorage.setItem('userEmail', normalized);
+      localStorage.setItem(STORAGE_KEYS.emailVerified, 'true');
+      el.userEmail.value = normalized;
+      updateUserProfileIndicator(normalized);
+    }
+
+    function updateUserProfileIndicator(emailOverride) {
+      const email = (emailOverride || getClientEmail() || '').trim().toLowerCase();
+      const verified = isUserVerified() && email;
+
+      if (verified) {
+        const label = email;
+        el.userProfileIndicator.textContent = label;
+        el.userProfileIndicator.title = `Signed in as ${label}`;
+        el.userProfileIndicator.className = 'rounded-lg bg-accent/10 border border-accent/30 px-3 py-2 text-xs text-accent truncate';
+        if (el.headerProfileIndicator) {
+          el.headerProfileIndicator.textContent = label;
+          el.headerProfileIndicator.title = `Signed in as ${label}`;
+          el.headerProfileIndicator.classList.remove('hidden');
+        }
+        return;
+      }
+
+      el.userProfileIndicator.textContent = 'Sign in to start chatting';
+      el.userProfileIndicator.title = 'Account';
+      el.userProfileIndicator.className = 'rounded-lg bg-slate-900/80 border border-edge px-3 py-2 text-xs text-slate-400 truncate';
+      if (el.headerProfileIndicator) {
+        el.headerProfileIndicator.textContent = '';
+        el.headerProfileIndicator.classList.add('hidden');
+      }
+    }
+
+    function resetLeadVerifyModalForm() {
+      el.modalOtpStep.classList.add('hidden');
+      el.modalOtpInput.value = '';
+      el.leadVerifyModalMessage.textContent = 'Verify your email to send messages and save your chat history.';
+    }
+
+    function openLeadVerifyModal(message) {
+      resetLeadVerifyModalForm();
+      const storedEmail = localStorage.getItem(STORAGE_KEYS.email) || '';
+      const storedWhatsapp = localStorage.getItem(STORAGE_KEYS.whatsapp) || '';
+      el.modalEmailInput.value = storedEmail;
+      el.modalWhatsappInput.value = storedWhatsapp;
+      if (message) el.leadVerifyModalMessage.textContent = message;
+      el.leadVerifyModal.classList.remove('hidden');
+      document.body.classList.add('modal-open');
+      el.modalWhatsappInput.focus();
+    }
+
+    function closeLeadVerifyModal(restorePendingPrompt) {
+      el.leadVerifyModal.classList.add('hidden');
+      document.body.classList.remove('modal-open');
+      resetLeadVerifyModalForm();
+      if (restorePendingPrompt && state.pendingChatPrompt) {
+        el.chatInput.value = state.pendingChatPrompt;
+        state.pendingChatPrompt = null;
+      }
+    }
+
+    async function syncModalLeadIdentity() {
+      const email = el.modalEmailInput.value.trim().toLowerCase();
+      const whatsapp = el.modalWhatsappInput.value.trim();
+      if (!email) return false;
+      el.userEmail.value = email;
+      localStorage.setItem(STORAGE_KEYS.email, email);
+      localStorage.setItem('userEmail', email);
+      if (whatsapp) localStorage.setItem(STORAGE_KEYS.whatsapp, whatsapp);
+      ensureDeviceFingerprint();
+      await refreshBrowserSessionProof();
+      return true;
     }
 
     function withRegisteredEmail(payload) {
@@ -700,22 +849,25 @@
       return response.status === 403 && payload?.code === 'VERIFICATION_REQUIRED';
     }
 
-    function showOtpVerificationPanel(message) {
-      el.otpVerificationPanel.classList.remove('hidden');
-      el.otpVerificationMessage.textContent =
-        message || 'A verification code has been sent to your email. Enter it below to unlock chat access.';
-      el.otpCodeInput.focus();
-    }
-
-    function hideOtpVerificationPanel() {
-      el.otpVerificationPanel.classList.add('hidden');
-      el.otpCodeInput.value = '';
-    }
-
-    async function sendOtpCode(options) {
-      const silent = options && options.silent;
+    async function sendOtpCode(options = {}) {
+      const silent = Boolean(options.silent);
       try {
-        await refreshBrowserSessionProof();
+        if (!options.skipIdentitySync) {
+          const whatsapp = el.modalWhatsappInput?.value.trim();
+          if (!whatsapp || whatsapp.replace(/\D/g, '').length < 8) {
+            if (!silent) showToast('Enter a valid WhatsApp number.', 'warn');
+            return false;
+          }
+          const email = el.modalEmailInput?.value.trim().toLowerCase();
+          if (!isValidEmailAddress(email)) {
+            if (!silent) showToast('Enter a valid email address.', 'warn');
+            return false;
+          }
+          await syncModalLeadIdentity();
+        } else {
+          await refreshBrowserSessionProof();
+        }
+
         const { response, payload } = await apiRequest('/api/send-otp', {
           method: 'POST',
           headers: getClientHeaders(),
@@ -723,34 +875,67 @@
         });
 
         if (!response.ok) {
-          if (!silent) {
-            showToast(payload.message || 'Failed to send verification code.', 'error');
-          }
+          if (!silent) showToast(payload.message || 'Failed to send verification code.', 'error');
           return false;
         }
 
-        if (!silent) {
-          showToast(payload.message || 'Verification code sent to your email.', 'success');
+        if (payload.alreadyVerified) {
+          return 'already_verified';
         }
+
+        el.modalOtpStep.classList.remove('hidden');
+        el.leadVerifyModalMessage.textContent = payload.message || 'Check your inbox for the 6-digit code.';
+        if (!silent) showToast(payload.message || 'Verification code sent to your email.', 'success');
+        el.modalOtpInput.focus();
         return true;
       } catch (error) {
-        if (!silent) {
-          showToast(error.message || 'Failed to send verification code.', 'error');
-        }
+        if (!silent) showToast(error.message || 'Failed to send verification code.', 'error');
         return false;
       }
     }
 
-    async function verifyOtpCode() {
-      const code = el.otpCodeInput.value.trim();
+    async function modalSendOtp() {
+      el.modalSendOtpBtn.disabled = true;
+      try {
+        const result = await sendOtpCode();
+        if (result === 'already_verified') {
+          await completeVerificationSuccess({
+            email: getClientEmail(),
+            message: 'Email is already verified.',
+          });
+        }
+      } finally {
+        el.modalSendOtpBtn.disabled = false;
+      }
+    }
+
+    async function completeVerificationSuccess(payload) {
+      markUserVerified(payload?.email || getClientEmail());
+      state.otpAutoSendAttempted = false;
+      showToast(payload?.message || 'Email verified successfully.', 'success');
+      await refreshBrowserSessionProof();
+      await loadSessionTrialState();
+      await loadConversationList();
+
+      const pendingPrompt = state.pendingChatPrompt;
+      state.pendingChatPrompt = null;
+      closeLeadVerifyModal(false);
+
+      if (pendingPrompt) {
+        await dispatchChatPrompt(pendingPrompt);
+      }
+    }
+
+    async function modalVerifyOtp() {
+      const code = el.modalOtpInput.value.trim();
       if (!/^\d{6}$/.test(code)) {
         showToast('Enter a valid 6-digit verification code.', 'warn');
         return;
       }
 
-      el.verifyOtpBtn.disabled = true;
+      el.modalConfirmOtpBtn.disabled = true;
       try {
-        await refreshBrowserSessionProof();
+        await syncModalLeadIdentity();
         const { response, payload } = await apiRequest('/api/verify-otp', {
           method: 'POST',
           headers: getClientHeaders(),
@@ -762,28 +947,23 @@
           return;
         }
 
-        hideOtpVerificationPanel();
-        state.otpAutoSendAttempted = false;
-        showToast(payload.message || 'Email verified successfully.', 'success');
-        await refreshBrowserSessionProof();
-        await loadSessionTrialState();
-        await loadConversationList();
+        await completeVerificationSuccess(payload);
       } catch (error) {
         showToast(error.message || 'Verification request failed.', 'error');
       } finally {
-        el.verifyOtpBtn.disabled = false;
+        el.modalConfirmOtpBtn.disabled = false;
       }
     }
 
     async function handleVerificationRequired(response, payload) {
       if (!isVerificationRequired(response, payload)) return false;
 
-      showOtpVerificationPanel(payload.message);
+      openLeadVerifyModal(payload.message || 'Email verification is required to continue.');
       showToast(payload.message || 'Email verification required.', 'warn');
 
       if (!state.otpAutoSendAttempted) {
         state.otpAutoSendAttempted = true;
-        await sendOtpCode({ silent: true });
+        await sendOtpCode({ silent: true, skipIdentitySync: true });
       }
 
       return true;
@@ -871,11 +1051,25 @@
     async function sendChatPrompt() {
       const prompt = el.chatInput.value.trim();
       if (!prompt) {
-        showToast('Enter a prompt before executing.', 'warn');
+        showToast('Enter a message before sending.', 'warn');
         return;
       }
 
-      appendChatMessage('user', prompt);
+      if (!isUserVerified()) {
+        state.pendingChatPrompt = prompt;
+        el.chatInput.value = '';
+        openLeadVerifyModal();
+        return;
+      }
+
+      await dispatchChatPrompt(prompt);
+    }
+
+    async function dispatchChatPrompt(prompt) {
+      const message = String(prompt || '').trim();
+      if (!message) return;
+
+      appendChatMessage('user', message);
       el.chatInput.value = '';
       el.sendChatBtn.disabled = true;
       const assistantNode = appendStreamingAssistantMessage();
@@ -889,7 +1083,7 @@
             Accept: 'text/event-stream',
           },
           body: JSON.stringify(withRegisteredEmail({
-            prompt,
+            prompt: message,
             stream: true,
             conversation_id: state.activeConversationId || undefined,
           })),
@@ -912,6 +1106,7 @@
 
           if (await handleVerificationRequired(response, payload)) {
             assistantNode.wrapper.remove();
+            state.pendingChatPrompt = message;
             return;
           }
 
@@ -943,9 +1138,14 @@
     }
 
     async function trackWhatsappShare() {
+      if (!isUserVerified()) {
+        openLeadVerifyModal('Verify your email before sharing to unlock bonus messages.');
+        return;
+      }
+
       const email = (el.userEmail.value || '').trim();
       if (!email) {
-        showToast('Enter your email address before sharing.', 'error');
+        openLeadVerifyModal('Verify your email before sharing to unlock bonus messages.');
         return;
       }
 
@@ -1209,6 +1409,7 @@
       localStorage.removeItem(STORAGE_KEYS.apiBase);
       el.userEmail.value = localStorage.getItem(STORAGE_KEYS.email) || '';
       ensureDeviceFingerprint();
+      updateUserProfileIndicator();
     }
 
     function bindEvents() {
@@ -1216,16 +1417,24 @@
         btn.addEventListener('click', () => setActiveScreen(btn.dataset.nav));
       });
 
-      el.userEmail.addEventListener('blur', () => { persistIdentitySilently(); });
-      el.userEmail.addEventListener('change', () => { persistIdentitySilently(); });
-      el.verifyOtpBtn.addEventListener('click', verifyOtpCode);
-      el.resendOtpBtn.addEventListener('click', () => sendOtpCode());
-      el.otpCodeInput.addEventListener('keydown', (event) => {
+      el.modalSendOtpBtn.addEventListener('click', modalSendOtp);
+      el.modalConfirmOtpBtn.addEventListener('click', modalVerifyOtp);
+      el.modalResendOtpBtn.addEventListener('click', () => sendOtpCode());
+      el.modalCloseBtn.addEventListener('click', () => closeLeadVerifyModal(true));
+      el.leadVerifyModalBackdrop.addEventListener('click', () => closeLeadVerifyModal(true));
+      el.modalEmailInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          verifyOtpCode();
+          modalSendOtp();
         }
       });
+      el.modalOtpInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          modalVerifyOtp();
+        }
+      });
+
       el.sendChatBtn.addEventListener('click', sendChatPrompt);
       el.chatInput.addEventListener('keydown', (event) => {
         if (event.key === 'Enter' && !event.shiftKey) {
@@ -1279,7 +1488,7 @@
           return;
         }
 
-        hideOtpVerificationPanel();
+        markUserVerified(payload.email || getClientEmail());
         state.sessionMsRemaining = payload.msRemaining;
         if (typeof payload.creditsUsed === 'number' && typeof payload.creditLimit === 'number') {
           updateCreditHint(payload.creditsUsed, payload.creditLimit);
@@ -1299,7 +1508,7 @@
       await refreshBrowserSessionProof();
       await checkHealth();
       await loadSessionTrialState();
-      appendChatMessage('assistant', 'Hi! Enter your email in the sidebar to get started, then ask me anything.', []);
+      appendChatMessage('assistant', 'Hi! Ask me anything — you\'ll be prompted to verify your email when you send your first message.', []);
     }
 
     bootDashboard().catch((error) => {
