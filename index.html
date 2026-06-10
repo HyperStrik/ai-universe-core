@@ -368,6 +368,8 @@
       email: 'auc_user_email',
       fingerprint: 'auc_device_fingerprint',
       adminKey: 'auc_admin_key',
+      commercialApiKey: 'auc_commercial_api_key',
+      godMasterApiKey: 'auc_god_master_api_key',
     };
 
     const SCREEN_META = {
@@ -397,6 +399,11 @@
       otpAutoSendAttempted: false,
       developerApi: {
         fullKeyVisible: false,
+        tokenBalance: null,
+      },
+      commercialChat: {
+        messages: [],
+        walletExhausted: false,
       },
       godWorkspace: {
         files: {},
@@ -1334,16 +1341,23 @@
     }
 
     async function sendChatPrompt() {
+      if (state.commercialChat.walletExhausted) {
+        showToast('Wallet balance exhausted. Please recharge your tokens.', 'warn');
+        return;
+      }
+
       const prompt = el.chatInput.value.trim();
       if (!prompt) {
         showToast('Enter a prompt before executing.', 'warn');
         return;
       }
 
-      const email = (el.userEmail.value || '').trim();
-      const fingerprint = (el.deviceFingerprint.value || '').trim();
-      if (!email || !fingerprint) {
-        showToast('Set client email and device fingerprint in the sidebar first.', 'error');
+      const bearerToken = getCommercialChatBearerToken();
+      if (!bearerToken) {
+        showToast(
+          'Add a commercial API key (sk_client_...) in Developer API Settings, or unlock God Mode with sk_god_master_...',
+          'warn'
+        );
         return;
       }
 
@@ -1351,73 +1365,72 @@
       el.chatInput.value = '';
       el.sendChatBtn.disabled = true;
 
-      const streamNode = appendStreamingAssistantMessage(['SSE Live Stream']);
+      state.commercialChat.messages.push({ role: 'user', content: prompt });
+      const assistantNode = appendStreamingAssistantMessage(['Commercial Metered API']);
 
       try {
-        const response = await fetch(`${getApiBase()}/api/chat`, {
+        const response = await fetch(`${getApiBase()}/api/v1/chat/completions`, {
           method: 'POST',
           headers: {
-            ...getClientHeaders(),
-            Accept: 'text/event-stream',
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${bearerToken}`,
           },
-          body: JSON.stringify(withRegisteredEmail({
-            prompt,
-            webSearchEnabled: true,
-            stream: true,
-          })),
+          body: JSON.stringify({
+            model: 'dolphin-llama3',
+            stream: false,
+            messages: state.commercialChat.messages.slice(-24),
+          }),
         });
 
-        const contentType = response.headers.get('content-type') || '';
+        let payload = {};
+        try {
+          payload = await response.json();
+        } catch {
+          payload = { message: `Chat failed with status ${response.status}` };
+        }
 
-        if (!response.ok && !contentType.includes('text/event-stream')) {
-          let payload = {};
-          try {
-            payload = await response.json();
-          } catch {
-            payload = { message: `Chat failed with status ${response.status}` };
-          }
+        if (response.status === 402) {
+          assistantNode.wrapper.remove();
+          state.commercialChat.messages.pop();
+          appendWalletExhaustedBanner();
+          showToast('Wallet balance exhausted. Please recharge your tokens.', 'warn');
+          return;
+        }
 
-          streamNode.wrapper.remove();
-
-          if (await handleVerificationRequired(response, payload)) {
-            appendChatMessage('assistant', payload.message || 'Email verification required before chat access.', ['Verification Required']);
-            return;
-          }
-
-          if (handlePaywallRedirect(response, payload)) {
-            appendChatMessage('assistant', payload.message || 'Trial or credit limits reached.', ['Paywall Redirect']);
-            return;
-          }
-
-          const errText = payload.message || `Chat failed with status ${response.status}`;
-          appendChatMessage('assistant', errText, [`Error ${response.status}`]);
+        if (!response.ok) {
+          state.commercialChat.messages.pop();
+          const errText =
+            payload?.error?.message || payload?.message || `Chat failed with status ${response.status}`;
+          assistantNode.body.textContent = errText;
+          appendAssistantTags(assistantNode.bubble, [`Error ${response.status}`, 'Commercial v1']);
           showToast(errText, 'error');
           return;
         }
 
-        const result = await consumeSseChatStream(response, streamNode);
-        const tags = buildResponseTags(result.meta, result.fullText);
-        if (result.truncated) tags.push('1000 Word Cap Applied');
+        const assistantText = payload?.choices?.[0]?.message?.content || '';
+        assistantNode.body.textContent = assistantText;
+        if (assistantText) {
+          state.commercialChat.messages.push({ role: 'assistant', content: assistantText });
+        }
 
-        const tagRow = document.createElement('div');
-        tagRow.className = 'mt-2 flex flex-wrap gap-2';
-        tags.forEach((tag) => {
-          const chip = document.createElement('span');
-          chip.className = 'text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-800 border border-edge text-slate-300';
-          chip.textContent = tag;
-          tagRow.appendChild(chip);
-        });
-        streamNode.bubble.appendChild(tagRow);
+        updateWalletFromSystemMeta(payload.system_meta);
 
-        updateTrialPaywallAlert(result.meta);
-        showToast('SSE chat stream completed successfully.', 'success');
+        const tags = ['Commercial v1'];
+        if (payload.system_meta?.user_tier) tags.push(`Tier: ${payload.system_meta.user_tier}`);
+        if (payload.usage?.total_tokens != null) tags.push(`${payload.usage.total_tokens} tokens burned`);
+        appendAssistantTags(assistantNode.bubble, tags);
+
+        showToast('Commercial chat response received.', 'success');
       } catch (error) {
-        streamNode.wrapper.remove();
+        state.commercialChat.messages.pop();
+        assistantNode.wrapper.remove();
         const errText = error.message || 'Network failure during chat execution.';
         appendChatMessage('assistant', errText, ['Network Error']);
         showToast(errText, 'error');
       } finally {
-        el.sendChatBtn.disabled = false;
+        if (!state.commercialChat.walletExhausted) {
+          el.sendChatBtn.disabled = false;
+        }
       }
     }
 
@@ -1739,6 +1752,82 @@
       return amount.toLocaleString();
     }
 
+    function getCommercialChatBearerToken() {
+      const godStored = (localStorage.getItem(STORAGE_KEYS.godMasterApiKey) || '').trim();
+      if (godStored.startsWith('sk_god_master_')) return godStored;
+
+      const adminKey = (el.adminKey?.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
+      if (adminKey.startsWith('sk_god_master_')) return adminKey;
+
+      const storedClient = (localStorage.getItem(STORAGE_KEYS.commercialApiKey) || '').trim();
+      if (storedClient.startsWith('sk_client_')) return storedClient;
+
+      const inputKey = (el.developerApiKeyInput?.value || '').trim();
+      if (inputKey.startsWith('sk_god_master_')) return inputKey;
+      if (inputKey.startsWith('sk_client_') && !inputKey.includes('•')) return inputKey;
+
+      return '';
+    }
+
+    function persistCommercialApiKey(apiKey) {
+      const value = String(apiKey || '').trim();
+      if (!value) return;
+      if (value.startsWith('sk_client_')) {
+        localStorage.setItem(STORAGE_KEYS.commercialApiKey, value);
+      }
+      if (value.startsWith('sk_god_master_')) {
+        localStorage.setItem(STORAGE_KEYS.godMasterApiKey, value);
+      }
+    }
+
+    function updateWalletFromSystemMeta(systemMeta) {
+      if (!systemMeta) return;
+      const balance =
+        systemMeta.remaining_wallet_balance ??
+        systemMeta.wallet_balance_remaining;
+      if (balance == null || balance === undefined) return;
+
+      state.developerApi.tokenBalance = balance;
+      if (el.developerTokenBalanceBadge) {
+        el.developerTokenBalanceBadge.textContent = `Tokens: ${formatTokenBalance(balance)}`;
+      }
+    }
+
+    function appendWalletExhaustedBanner() {
+      if (document.getElementById('walletExhaustedBanner')) return;
+
+      state.commercialChat.walletExhausted = true;
+      el.sendChatBtn.disabled = true;
+      el.chatInput.disabled = true;
+      el.chatInput.placeholder = 'Wallet exhausted — recharge tokens to continue';
+
+      const banner = document.createElement('div');
+      banner.id = 'walletExhaustedBanner';
+      banner.className =
+        'mx-auto my-3 max-w-[92%] rounded-2xl border border-amber-500/45 bg-gradient-to-r from-amber-500/20 via-rose-500/10 to-slate-950 px-5 py-4 text-center shadow-lg shadow-amber-900/25';
+      banner.innerHTML = `
+        <p class="text-xs font-semibold uppercase tracking-[0.2em] text-amber-300 mb-1">Payment Required</p>
+        <p class="text-sm font-medium text-amber-50 leading-relaxed">Wallet Balance Exhausted — Please Recharge Your Tokens</p>
+        <p class="text-[11px] text-slate-400 mt-2">Commercial chat is paused until your token wallet is replenished.</p>
+      `;
+      el.chatTimeline.appendChild(banner);
+      el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
+    }
+
+    function appendAssistantTags(bubble, tags) {
+      if (!bubble || !tags?.length) return;
+      const tagRow = document.createElement('div');
+      tagRow.className = 'mt-2 flex flex-wrap gap-2';
+      tags.forEach((tag) => {
+        const chip = document.createElement('span');
+        chip.className =
+          'text-[10px] uppercase tracking-wide px-2 py-0.5 rounded-md bg-slate-800 border border-edge text-slate-300';
+        chip.textContent = tag;
+        tagRow.appendChild(chip);
+      });
+      bubble.appendChild(tagRow);
+    }
+
     function renderDeveloperApiDashboard(payload = {}) {
       if (!el.developerApiCard) return;
 
@@ -1762,6 +1851,7 @@
 
     function showDeveloperApiKeyPlaintext(apiKey) {
       if (!apiKey) return;
+      persistCommercialApiKey(apiKey);
       state.developerApi.fullKeyVisible = true;
       el.developerApiKeyInput.type = 'text';
       el.developerApiKeyInput.value = apiKey;
@@ -1863,8 +1953,13 @@
           return;
         }
 
+        persistCommercialApiKey(payload.apiKey);
         showDeveloperApiKeyPlaintext(payload.apiKey);
         renderDeveloperApiDashboard(payload);
+        updateWalletFromSystemMeta({
+          remaining_wallet_balance: payload.tokenBalance,
+          wallet_balance_remaining: payload.tokenBalance,
+        });
         showToast('New secret API key created. Copy and store it securely.', 'success');
       } catch (error) {
         showToast(error.message || 'API key generation failed.', 'error');
@@ -1930,6 +2025,12 @@
       el.userEmail.value = localStorage.getItem(STORAGE_KEYS.email) || '';
       el.deviceFingerprint.value = ensureDeviceFingerprint();
       el.adminKey.value = localStorage.getItem(STORAGE_KEYS.adminKey) || '';
+      const storedCommercialKey = localStorage.getItem(STORAGE_KEYS.commercialApiKey) || '';
+      if (storedCommercialKey.startsWith('sk_client_') && el.developerApiKeyInput) {
+        el.developerApiKeyInput.value = storedCommercialKey;
+        el.developerApiKeyInput.type = 'password';
+        state.developerApi.fullKeyVisible = true;
+      }
       localStorage.removeItem('auc_testing_master_key');
       localStorage.removeItem('auc_web_search_enabled');
       if (el.adminKey.value) {

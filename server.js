@@ -71,6 +71,7 @@ function stripQuotes(value) {
 }
 
 const MASTER_ADMIN_KEY = stripQuotes(process.env.MASTER_ADMIN_KEY);
+const GOD_MODE_MASTER_KEY = stripQuotes(process.env.GOD_MODE_MASTER_KEY);
 const SUPABASE_URL = stripQuotes(process.env.SUPABASE_URL);
 const SUPABASE_ANON_KEY = stripQuotes(process.env.SUPABASE_ANON_KEY);
 const REDIS_URL = stripQuotes(process.env.REDIS_URL);
@@ -2457,6 +2458,182 @@ function authMiddleware(req, res, next) {
   next();
 }
 
+// ---------------------------------------------------------------------------
+// Option 1 — Commercial Token-Metered Chat Engine
+// ---------------------------------------------------------------------------
+
+function calculateTokens(text) {
+  const normalized = String(text || '').trim();
+  if (!normalized) return 0;
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  return Math.ceil(wordCount * 1.3);
+}
+
+function calculateTokensFromMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0) return 0;
+  const combined = messages.map((entry) => String(entry?.content || '')).join(' ');
+  return calculateTokens(combined);
+}
+
+async function deductPublicClientTokenBalanceByEmail(email, burnAmount, currentBalance) {
+  const normalizedBurn = Math.max(0, Number(burnAmount) || 0);
+  const balanceBefore = Math.max(0, Number(currentBalance) || 0);
+  const balanceAfter = Math.max(0, balanceBefore - normalizedBurn);
+
+  const { data, error } = await getSupabase()
+    .from('users')
+    .update({ token_balance: balanceAfter })
+    .eq('email', email)
+    .select('token_balance')
+    .single();
+
+  if (error) throw error;
+  return Math.max(0, Number(data?.token_balance) ?? balanceAfter);
+}
+
+async function universalApiKeyValidator(req, res, next) {
+  try {
+    const authHeader = String(req.headers.authorization || '').trim();
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    if (!bearerMatch) {
+      return next();
+    }
+
+    const apiKey = bearerMatch[1].trim();
+    const isGodModeOwnerKey =
+      (GOD_MODE_MASTER_KEY && apiKey === GOD_MODE_MASTER_KEY) || apiKey.startsWith('sk_god_master_');
+
+    if (isGodModeOwnerKey) {
+      req.userTier = 'GOD_MODE_OWNER';
+      return next();
+    }
+
+    if (!apiKey.startsWith('sk_client_')) {
+      return next();
+    }
+
+    const dbHealthy = await verifyDatabaseHealth('universal-api-key-validator');
+    if (!dbHealthy) {
+      return res.status(503).json({
+        error: {
+          message: 'Supabase PostgreSQL is required for API key validation and is currently unreachable.',
+          type: 'database_unavailable',
+        },
+      });
+    }
+
+    const { data: user, error } = await getSupabase()
+      .from('users')
+      .select('email, token_balance, api_key')
+      .eq('api_key', apiKey)
+      .maybeSingle();
+
+    if (error) throw error;
+    if (!user) {
+      return res.status(401).json({
+        error: {
+          message: 'Invalid API key.',
+          type: 'invalid_api_key',
+        },
+      });
+    }
+
+    const currentBalance = Math.max(0, Number(user.token_balance) || 0);
+    if (currentBalance <= 0) {
+      return res.status(402).json({
+        error: {
+          message: 'Payment required. Token balance must be greater than zero.',
+          type: 'payment_required',
+        },
+      });
+    }
+
+    req.userTier = 'PUBLIC_CLIENT';
+    req.userEmail = user.email;
+    req.currentBalance = currentBalance;
+    return next();
+  } catch (err) {
+    console.error('[universalApiKeyValidator]', err.message);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: {
+          message: 'API key validation failed.',
+          type: 'auth_failed',
+        },
+      });
+    }
+  }
+}
+
+async function handleCommercialMeteredChatCompletions(req, res, next) {
+  if (req.userTier !== 'GOD_MODE_OWNER' && req.userTier !== 'PUBLIC_CLIENT') {
+    return next();
+  }
+
+  try {
+    const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
+    const inputTokens = calculateTokensFromMessages(messages);
+    const simulatedResponseText = `[Commercial Metered Engine] Placeholder response for ${messages.length} message(s). Estimated input tokens: ${inputTokens}.`;
+    const outputTokens = calculateTokens(simulatedResponseText);
+    const totalTokensBurned = inputTokens + outputTokens;
+
+    let walletBalanceRemaining = req.userTier === 'GOD_MODE_OWNER' ? null : req.currentBalance;
+
+    if (req.userTier === 'PUBLIC_CLIENT') {
+      walletBalanceRemaining = await deductPublicClientTokenBalanceByEmail(
+        req.userEmail,
+        totalTokensBurned,
+        req.currentBalance
+      );
+      req.currentBalance = walletBalanceRemaining;
+    }
+
+    const completionId = `chatcmpl_${Date.now()}_${crypto.randomBytes(4).toString('hex')}`;
+    const responseModel =
+      typeof req.body?.model === 'string' && req.body.model.trim()
+        ? req.body.model.trim()
+        : COMMERCIAL_DEFAULT_MODEL;
+
+    return res.status(200).json({
+      id: completionId,
+      object: 'chat.completion',
+      created: Math.floor(Date.now() / 1000),
+      model: responseModel,
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: simulatedResponseText,
+          },
+          finish_reason: 'stop',
+        },
+      ],
+      usage: {
+        prompt_tokens: inputTokens,
+        completion_tokens: outputTokens,
+        total_tokens: totalTokensBurned,
+      },
+      system_meta: {
+        user_tier: req.userTier,
+        user_email: req.userEmail || null,
+        wallet_balance_remaining: walletBalanceRemaining,
+        tokens_burned: totalTokensBurned,
+      },
+    });
+  } catch (err) {
+    console.error('[commercial-metered-chat]', err.message);
+    if (!res.headersSent) {
+      return res.status(500).json({
+        error: {
+          message: err.message || 'Chat completion failed.',
+          type: 'completion_failed',
+        },
+      });
+    }
+  }
+}
+
 async function commercialApiAuthMiddleware(req, res, next) {
   if (isValidMasterOwnerKey(req)) {
     applyMasterOwnerSession(req);
@@ -3126,6 +3303,12 @@ app.post('/api/user/generate-api-key', (req, res) => {
     createdAt: new Date().toISOString(),
   });
 });
+
+app.post(
+  '/api/v1/chat/completions',
+  universalApiKeyValidator,
+  handleCommercialMeteredChatCompletions
+);
 
 app.post('/api/v1/chat/completions', commercialApiAuthMiddleware, async (req, res) => {
   try {
