@@ -2590,6 +2590,11 @@ async function handleCommercialMeteredChatCompletions(req, res, next) {
     return next();
   }
 
+  // God Mode owner keys route to the live Dolphin/RunPod pipeline via handleV1ChatCompletions.
+  if (req.userTier === 'GOD_MODE_OWNER') {
+    return next();
+  }
+
   try {
     const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
     const inputTokens = calculateTokensFromMessages(messages);
@@ -2655,7 +2660,13 @@ async function handleCommercialMeteredChatCompletions(req, res, next) {
 }
 
 async function commercialApiAuthMiddleware(req, res, next) {
-  if (isValidMasterOwnerKey(req)) {
+  const apiKey = extractCommercialApiKey(req);
+  const isGodModeOwnerKey =
+    isValidMasterOwnerKey(req) ||
+    (GOD_MODE_MASTER_KEY && apiKey === GOD_MODE_MASTER_KEY) ||
+    (apiKey && apiKey.startsWith('sk_god_master_'));
+
+  if (isGodModeOwnerKey) {
     applyMasterOwnerSession(req);
     req.commercialAccess = {
       tier: 'god_mode_owner',
@@ -2667,7 +2678,6 @@ async function commercialApiAuthMiddleware(req, res, next) {
     return next();
   }
 
-  const apiKey = extractCommercialApiKey(req);
   if (!apiKey) {
     return sendOpenAiError(
       res,

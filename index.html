@@ -555,9 +555,7 @@
 
               <div class="god-terminal-panel">
                 <div class="px-3 py-1.5 border-b border-[#2b2b2b] bg-[#1e1e1e] flex items-center gap-2 shrink-0">
-                  <span class="text-[10px] uppercase tracking-widest text-[#858585] shrink-0">Terminal</span>
-                  <input id="godTerminalInput" type="text" placeholder="node workspace/app.js" class="flex-1 min-w-0 rounded bg-[#0c0c0c] border border-[#3c3c3c] px-2 py-1 text-[11px] text-[#4ec9b0] focus:outline-none focus:ring-1 focus:ring-[#007acc] font-mono" />
-                  <button id="godTerminalRunBtn" type="button" class="shrink-0 text-[10px] px-2.5 py-1 rounded border border-[#4ec9b0]/40 text-[#4ec9b0] hover:bg-[#4ec9b0]/10 font-semibold">Run</button>
+                  <span class="text-[10px] uppercase tracking-widest text-[#858585] shrink-0">Activity Log</span>
                 </div>
                 <pre id="godTerminal" class="god-terminal-line chat-scroll flex-1 overflow-y-auto p-3 text-[11px] whitespace-pre-wrap text-[#cccccc] min-h-0"></pre>
               </div>
@@ -648,7 +646,7 @@
         },
         streamDiffBaseline: null,
         streamDiffBaselineCaptured: false,
-        runInProgress: false,
+        chatMessages: [],
       },
     };
 
@@ -712,8 +710,6 @@
       godCenterStack: document.querySelector('.god-center-stack'),
       godCursorGrid: document.querySelector('.god-cursor-grid'),
       godTerminal: document.getElementById('godTerminal'),
-      godTerminalInput: document.getElementById('godTerminalInput'),
-      godTerminalRunBtn: document.getElementById('godTerminalRunBtn'),
       toggleGodOpsBtn: document.getElementById('toggleGodOpsBtn'),
       godOpsPanel: document.getElementById('godOpsPanel'),
       toastHost: document.getElementById('toastHost'),
@@ -1661,126 +1657,6 @@
       }
     }
 
-    async function runGodWorkspaceCommand(commandOverride) {
-      if (!state.adminUnlocked) {
-        showToast('Unlock God Mode with a valid admin key first.', 'warn');
-        return;
-      }
-
-      if (state.godWorkspace.runInProgress) {
-        showToast('A workspace command is already running.', 'warn');
-        return;
-      }
-
-      const command = (commandOverride || el.godTerminalInput.value || '').trim();
-      if (!command) {
-        showToast('Enter a command to run in AI_Workspace.', 'warn');
-        return;
-      }
-
-      state.godWorkspace.runInProgress = true;
-      el.godTerminalRunBtn.disabled = true;
-      appendGodTerminalRaw(`\n$ ${command}\n`, 'system');
-
-      try {
-        const response = await fetch(`${getApiBase()}/api/god-workspace/run`, {
-          method: 'POST',
-          headers: {
-            ...getAdminHeaders(),
-            Accept: 'text/event-stream',
-          },
-          body: JSON.stringify(withRegisteredEmail({
-            command,
-            cwd: '.',
-            stream: true,
-          })),
-        });
-
-        const contentType = response.headers.get('content-type') || '';
-        if (!response.ok && !contentType.includes('text/event-stream')) {
-          let payload = {};
-          try {
-            payload = await response.json();
-          } catch {
-            payload = { message: `Run failed (${response.status})` };
-          }
-          throw new Error(payload.message || `Run failed (${response.status})`);
-        }
-
-        if (!response.body) {
-          throw new Error('No response stream returned from workspace runner.');
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-
-        const ingestRunFrames = (frames) => {
-          for (const frame of frames) {
-            if (!frame.trim()) continue;
-            const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
-            for (const line of frameLines) {
-              const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
-              if (!payloadRaw || payloadRaw === '[DONE]') continue;
-
-              let payload;
-              try {
-                payload = JSON.parse(payloadRaw);
-              } catch {
-                continue;
-              }
-
-              if (payload.type === 'meta') {
-                appendGodTerminalRaw(
-                  `[workspace-run] cwd=${payload.cwd || '.'} · ${payload.command || command}\n`,
-                  'system'
-                );
-                continue;
-              }
-
-              if (payload.type === 'stdout' && payload.content) {
-                appendGodTerminalRaw(payload.content, 'stdout');
-                continue;
-              }
-
-              if (payload.type === 'stderr' && payload.content) {
-                appendGodTerminalRaw(payload.content, 'stderr');
-                continue;
-              }
-
-              if (payload.type === 'exit') {
-                appendGodTerminalRaw(
-                  `\n[exit code ${payload.code ?? 1}${payload.signal ? ` signal ${payload.signal}` : ''}]\n`,
-                  payload.code === 0 ? 'system' : 'stderr'
-                );
-              }
-            }
-          }
-        };
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (value) {
-            buffer += decoder.decode(value, { stream: true });
-            const frames = buffer.split('\n\n');
-            buffer = frames.pop() || '';
-            ingestRunFrames(frames);
-          }
-          if (done) {
-            buffer += decoder.decode(undefined, { stream: false });
-            if (buffer.trim()) ingestRunFrames([buffer]);
-            break;
-          }
-        }
-      } catch (error) {
-        appendGodTerminalRaw(`\n[workspace-run] ${error.message}\n`, 'stderr');
-        showToast(error.message || 'Workspace command failed.', 'error');
-      } finally {
-        state.godWorkspace.runInProgress = false;
-        el.godTerminalRunBtn.disabled = false;
-      }
-    }
-
     async function refreshGodFileExplorer() {
       if (!state.adminUnlocked) return;
 
@@ -2231,25 +2107,34 @@
         return;
       }
 
+      const bearerToken = getGodWorkspaceChatBearerToken();
+      if (!bearerToken) {
+        showToast('Add a God Mode API key (sk_god_master_...) or unlock with your master admin key.', 'warn');
+        return;
+      }
+
       appendGodDirectChatEntry('user', prompt);
       el.godDirectChatInput.value = '';
       el.godDirectChatSendBtn.disabled = true;
       resetGodStreamDiffBaseline();
-      appendGodTerminalLog(`Prompt dispatched → ${getApiBase()}/api/chat`, 'info');
+      appendGodTerminalLog(`Prompt dispatched → ${getApiBase()}/api/v1/chat/completions`, 'info');
 
       const assistantNode = appendGodDirectChatEntry('assistant', '');
+      const outboundMessages = buildGodDirectChatMessages(prompt);
 
       try {
-        const response = await fetch(`${getApiBase()}/api/chat`, {
+        const response = await fetch(`${getApiBase()}/api/v1/chat/completions`, {
           method: 'POST',
           headers: {
-            ...getAdminHeaders(),
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${bearerToken}`,
             Accept: 'text/event-stream',
           },
-          body: JSON.stringify(withRegisteredEmail({
-            prompt,
+          body: JSON.stringify({
+            model: 'dolphin-llama3',
             stream: true,
-          })),
+            messages: outboundMessages,
+          }),
         });
 
         const contentType = response.headers.get('content-type') || '';
@@ -2261,89 +2146,50 @@
           } catch {
             payload = { message: `God Mode chat failed (${response.status})` };
           }
-          assistantNode.body.textContent = payload.message || `Error ${response.status}`;
-          showToast(payload.message || 'God Mode chat failed.', 'error');
+          const errText =
+            payload?.error?.message || payload?.message || `Error ${response.status}`;
+          assistantNode.body.textContent = errText;
+          showToast(errText, 'error');
           return;
         }
 
-        if (contentType.includes('text/event-stream') && response.body) {
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-          let fullText = '';
-
-          const ingestSseFrames = (frames) => {
-            for (const frame of frames) {
-              if (!frame.trim()) continue;
-              const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
-              for (const line of frameLines) {
-                const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
-                if (!payloadRaw || payloadRaw === '[DONE]') continue;
-
-                let payload;
-                try {
-                  payload = JSON.parse(payloadRaw);
-                } catch {
-                  continue;
-                }
-
-                if (payload.error) {
-                  throw new Error(payload.message || 'SSE stream reported an error.');
-                }
-
-                if (payload.type === 'meta') continue;
-
-                if (payload.content && payload.content !== TRUNCATION_BADGE && !payload.truncated) {
-                  const chunk = payload.content.includes(TRUNCATION_BADGE)
-                    ? payload.content.replace(TRUNCATION_BADGE, '')
-                    : payload.content;
-                  fullText += chunk;
-                  const streamView = applyGodWorkspaceStream(fullText);
-                  assistantNode.body.textContent = streamView.hasMonacoContent
-                    ? (streamView.chatDisplay || 'Writing to Monaco workspace…')
-                    : (streamView.chatDisplay || fullText);
-                  el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
-                  layoutGodMonacoSurfaces();
-                }
-              }
-            }
-          };
-
-          while (true) {
-            const { value, done } = await reader.read();
-            if (value) {
-              buffer += decoder.decode(value, { stream: true });
-              const frames = buffer.split('\n\n');
-              buffer = frames.pop() || '';
-              ingestSseFrames(frames);
-            }
-            if (done) {
-              buffer += decoder.decode(undefined, { stream: false });
-              if (buffer.trim()) {
-                ingestSseFrames([buffer]);
-              }
-              break;
-            }
-          }
-
-          if (!fullText.trim()) {
-            assistantNode.body.textContent = 'No response content returned from model.';
-          } else {
-            const finalView = applyGodWorkspaceStream(fullText);
-            assistantNode.body.textContent = finalView.hasMonacoContent
-              ? (finalView.chatDisplay || 'Workspace files updated — see Monaco editor.')
-              : (finalView.chatDisplay || fullText);
-            await refreshGodFileExplorer();
-            layoutGodMonacoSurfaces();
-            appendGodTerminalLog('God Mode stream completed — workspace synced.', 'info');
-          }
-        } else {
-          const payload = await response.json();
-          assistantNode.body.textContent =
-            payload.output || payload.message || JSON.stringify(payload, null, 2);
+        if (response.status === 402) {
+          assistantNode.body.textContent = 'Wallet balance exhausted for this API key.';
+          showToast('Wallet balance exhausted.', 'warn');
+          return;
         }
 
-        showToast('God Mode direct chat completed.', 'success');
+        const renderStreamDelta = (fullText) => {
+          const streamView = applyGodWorkspaceStream(fullText);
+          assistantNode.body.textContent = streamView.hasMonacoContent
+            ? (streamView.chatDisplay || 'Writing to Monaco workspace…')
+            : (streamView.chatDisplay || fullText);
+          el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
+          layoutGodMonacoSurfaces();
+        };
+
+        const fullText = await ingestOpenAiSseStream(response, (accumulated) => {
+          renderStreamDelta(accumulated);
+        });
+
+        if (!fullText.trim()) {
+          assistantNode.body.textContent = 'No response content returned from Dolphin engine.';
+        } else {
+          const finalView = applyGodWorkspaceStream(fullText);
+          const chatDisplay = finalView.hasMonacoContent
+            ? (finalView.chatDisplay || 'Workspace files updated — see Monaco editor.')
+            : (finalView.chatDisplay || fullText);
+          assistantNode.body.textContent = chatDisplay;
+
+          state.godWorkspace.chatMessages.push({ role: 'user', content: prompt });
+          state.godWorkspace.chatMessages.push({ role: 'assistant', content: fullText });
+
+          await refreshGodFileExplorer();
+          layoutGodMonacoSurfaces();
+          appendGodTerminalLog('Dolphin v1 stream completed — workspace synced.', 'info');
+        }
+
+        showToast('God Mode AI response received.', 'success');
       } catch (error) {
         assistantNode.body.textContent = error.message || 'Network failure during God Mode chat.';
         showToast(error.message || 'God Mode chat failed.', 'error');
@@ -2530,6 +2376,135 @@
       if (inputKey.startsWith('sk_client_') && !inputKey.includes('•')) return inputKey;
 
       return '';
+    }
+
+    function getGodWorkspaceChatBearerToken() {
+      const commercial = getCommercialChatBearerToken();
+      if (commercial.startsWith('sk_god_master_')) return commercial;
+
+      if (state.adminUnlocked) {
+        const adminKey = (el.adminKey?.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
+        if (adminKey) return adminKey;
+      }
+
+      return commercial;
+    }
+
+    function buildGodWorkspaceContextSystemMessage() {
+      const ws = state.godWorkspace;
+      const lines = [
+        '[AI_UNIVERSE_WORKSPACE_CONTEXT]',
+        `engine_route: POST /api/v1/chat/completions`,
+        `model: dolphin-llama3`,
+        `mode: god_mode_uncensored`,
+        `api_base: ${getApiBase()}`,
+      ];
+
+      if (ws.localDirName) {
+        lines.push(`local_folder: ${ws.localDirName}`);
+        lines.push(`local_sync: ${ws.localDirHandle ? 'active' : 'inactive'}`);
+      }
+
+      if (ws.activeFile) {
+        lines.push(`active_file: ${ws.activeFile}`);
+      }
+
+      const workspacePaths = getMergedGodWorkspaceEntries()
+        .map((entry) => entry.path)
+        .slice(0, 100);
+      if (workspacePaths.length) {
+        lines.push(`workspace_index_count: ${workspacePaths.length}`);
+        lines.push(`workspace_index: ${workspacePaths.join(', ')}`);
+      }
+
+      if (ws.activeFile) {
+        let activeContent = ws.files[ws.activeFile];
+        if (activeContent == null && godMonacoEditor && !ws.diffReview.active) {
+          activeContent = godMonacoEditor.getValue();
+        }
+        if (typeof activeContent === 'string' && activeContent.trim()) {
+          const preview = activeContent.length > 12000
+            ? `${activeContent.slice(0, 12000)}\n…[truncated]`
+            : activeContent;
+          lines.push('active_file_content:', '```', preview, '```');
+        }
+      }
+
+      lines.push(
+        '[/AI_UNIVERSE_WORKSPACE_CONTEXT]',
+        'Respond using <<<AI_WORKSPACE_WRITE: relative/path>>> … <<<END_AI_WORKSPACE_WRITE>>> for file outputs.',
+        'The user query in the next message is the direct instruction — do not substitute external defaults.'
+      );
+
+      return lines.join('\n');
+    }
+
+    function buildGodDirectChatMessages(userPrompt) {
+      return [
+        { role: 'system', content: buildGodWorkspaceContextSystemMessage() },
+        ...state.godWorkspace.chatMessages.slice(-20),
+        { role: 'user', content: userPrompt },
+      ];
+    }
+
+    function extractOpenAiStreamDelta(payload) {
+      if (payload?.error?.message) {
+        throw new Error(payload.error.message);
+      }
+      const delta = payload?.choices?.[0]?.delta?.content;
+      return typeof delta === 'string' ? delta : '';
+    }
+
+    async function ingestOpenAiSseStream(response, onDelta) {
+      if (!response.body) {
+        throw new Error('No response stream returned from AI engine.');
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let fullText = '';
+
+      const ingestFrames = (frames) => {
+        for (const frame of frames) {
+          if (!frame.trim()) continue;
+          const frameLines = frame.split('\n').map((line) => line.trim()).filter(Boolean);
+          for (const line of frameLines) {
+            const payloadRaw = line.startsWith('data:') ? line.replace(/^data:\s*/, '') : line;
+            if (!payloadRaw || payloadRaw === '[DONE]') continue;
+
+            let payload;
+            try {
+              payload = JSON.parse(payloadRaw);
+            } catch {
+              continue;
+            }
+
+            const chunk = extractOpenAiStreamDelta(payload);
+            if (chunk) {
+              fullText += chunk;
+              onDelta(fullText, chunk);
+            }
+          }
+        }
+      };
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (value) {
+          buffer += decoder.decode(value, { stream: true });
+          const frames = buffer.split('\n\n');
+          buffer = frames.pop() || '';
+          ingestFrames(frames);
+        }
+        if (done) {
+          buffer += decoder.decode(undefined, { stream: false });
+          if (buffer.trim()) ingestFrames([buffer]);
+          break;
+        }
+      }
+
+      return fullText;
     }
 
     function persistCommercialApiKey(apiKey) {
@@ -2768,8 +2743,8 @@
       showToast('God Mode session unlocked locally.', 'success');
       logAdminConsole('SESSION', { status: 'admin_panel_unlocked' });
       initGodMonacoEditor();
-      appendGodTerminalLog(`God Mode workspace online · localhost mirror of ${getApiBase()}`, 'info');
-      appendGodTerminalLog('Terminal runner ready — try: node workspace/app.js', 'info');
+      appendGodTerminalLog(`God Mode workspace online · ${getApiBase()}`, 'info');
+      appendGodTerminalLog('AI engine linked · POST /api/v1/chat/completions', 'info');
       refreshGodFileExplorer();
     }
 
@@ -2862,13 +2837,6 @@
         }
       });
       el.refreshGodFilesBtn.addEventListener('click', refreshGodFileExplorer);
-      el.godTerminalRunBtn.addEventListener('click', () => runGodWorkspaceCommand());
-      el.godTerminalInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          runGodWorkspaceCommand();
-        }
-      });
       el.toggleGodOpsBtn.addEventListener('click', () => {
         el.godOpsPanel.classList.toggle('hidden');
       });
