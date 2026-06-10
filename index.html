@@ -97,7 +97,7 @@
     }
     .copy-code-btn:hover { background: #334155; }
     .conversation-item { border: 1px solid transparent; }
-    #chatHistorySidebar { border-right: 1px solid #1f2937; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0; }
   </style>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
@@ -110,35 +110,30 @@
 </head>
 <body class="h-full bg-surface text-slate-100 antialiased">
   <div id="app" class="h-full flex flex-col lg:flex-row">
-    <aside class="w-full lg:w-72 shrink-0 border-b lg:border-b-0 lg:border-r border-edge bg-panel">
-      <div class="p-5 border-b border-edge">
+    <aside class="w-full lg:w-64 shrink-0 border-b lg:border-b-0 lg:border-r border-edge bg-panel flex flex-col min-h-0">
+      <div class="p-4 border-b border-edge shrink-0">
         <div class="flex items-center gap-3">
-          <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-accent to-accent2 flex items-center justify-center font-bold text-black">AI</div>
-          <div>
-            <h1 class="text-lg font-semibold tracking-tight">AI Universe Core</h1>
-            <p class="text-xs text-slate-400">Enterprise SaaS Console</p>
-          </div>
+          <div class="h-9 w-9 rounded-lg bg-gradient-to-br from-accent to-accent2 flex items-center justify-center font-bold text-black text-sm">AI</div>
+          <button type="button" id="brandHomeBtn" class="text-base font-semibold tracking-tight hover:text-accent transition-colors">AI Universe</button>
         </div>
       </div>
 
-      <nav class="p-4 space-y-2">
-        <button data-nav="chat" class="nav-btn w-full text-left px-4 py-3 rounded-xl bg-accent/15 border border-accent/30 text-accent font-medium">Client AI Chat</button>
-        <button data-nav="pricing" class="nav-btn w-full text-left px-4 py-3 rounded-xl hover:bg-slate-800 border border-transparent">Pricing Plans</button>
-        <a href="god-mode.html" class="block w-full text-left px-4 py-3 rounded-xl hover:bg-slate-800 border border-transparent text-slate-200 text-sm">God Mode Console ↗</a>
-      </nav>
+      <div class="p-3 shrink-0">
+        <button id="newConversationBtn" type="button" class="w-full rounded-xl border border-edge bg-slate-900 hover:bg-slate-800 text-sm py-2.5 text-slate-200 font-medium">
+          + New chat
+        </button>
+      </div>
 
-      <div class="p-4 border-t border-edge space-y-3">
-        <label class="block text-xs text-slate-400 uppercase tracking-wide">API Base URL</label>
-        <input id="apiBase" type="url" placeholder="https://ai-universe-core.onrender.com/" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-        <label class="block text-xs text-slate-400 uppercase tracking-wide">Client Email</label>
-        <input id="userEmail" type="email" placeholder="Enter email — user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+      <div id="conversationList" class="chat-scroll flex-1 overflow-y-auto px-2 pb-2 space-y-0.5 min-h-0"></div>
 
-        <div id="otpVerificationPanel" class="hidden rounded-xl border border-accent2/40 bg-gradient-to-br from-accent2/10 to-slate-900 p-3 space-y-3 shadow-lg shadow-accent2/10">
-          <p class="text-xs font-semibold uppercase tracking-wide text-accent2">Email Verification Required</p>
+      <div class="p-3 border-t border-edge space-y-3 shrink-0 mt-auto">
+        <input id="userEmail" type="email" placeholder="Your email address" autocomplete="email" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+
+        <div id="otpVerificationPanel" class="hidden rounded-xl border border-accent2/40 bg-gradient-to-br from-accent2/10 to-slate-900 p-3 space-y-3">
+          <p class="text-xs font-semibold text-accent2">Verify your email</p>
           <p id="otpVerificationMessage" class="text-xs text-slate-400 leading-relaxed">
-            A verification code has been sent to your email. Enter it below to unlock chat access.
+            We sent a 6-digit code to your inbox. Enter it below to start chatting.
           </p>
-          <label class="block text-xs text-slate-400 uppercase tracking-wide">Enter 6-digit Verification Code</label>
           <input
             id="otpCodeInput"
             type="text"
@@ -148,74 +143,31 @@
             placeholder="000000"
             class="w-full rounded-lg bg-slate-950 border border-accent2/30 px-3 py-2 text-sm tracking-[0.35em] text-center font-mono focus:outline-none focus:ring-2 focus:ring-accent2"
           />
-          <button
-            id="verifyOtpBtn"
-            type="button"
-            class="w-full rounded-lg bg-accent2 hover:bg-blue-500 text-white py-2 text-sm font-medium"
-          >
-            Verify Code
+          <button id="verifyOtpBtn" type="button" class="w-full rounded-lg bg-accent2 hover:bg-blue-500 text-white py-2 text-sm font-medium">
+            Verify
           </button>
-          <button
-            id="resendOtpBtn"
-            type="button"
-            class="w-full text-xs text-accent2 hover:text-blue-300 underline underline-offset-2 py-1"
-          >
-            Resend Code
+          <button id="resendOtpBtn" type="button" class="w-full text-xs text-accent2 hover:text-blue-300 underline underline-offset-2 py-1">
+            Resend code
           </button>
         </div>
 
-        <label class="block text-xs text-slate-400 uppercase tracking-wide">Device Fingerprint</label>
-        <input id="deviceFingerprint" type="text" placeholder="stable-device-id" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
-        <button id="saveIdentityBtn" class="w-full rounded-lg bg-slate-800 hover:bg-slate-700 border border-edge py-2 text-sm">Save Client Identity</button>
-
-        <div id="developerApiCard" class="rounded-xl border border-edge bg-gradient-to-br from-slate-900 to-slate-950 p-3 space-y-3 shadow-lg shadow-black/20">
-          <div class="flex items-start justify-between gap-2">
-            <div>
-              <p class="text-xs font-semibold uppercase tracking-wide text-accent">Developer API Settings</p>
-              <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">Self-service keys for <code class="text-slate-300">/api/v1/chat/completions</code></p>
-            </div>
-            <span id="developerTokenBalanceBadge" class="shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-              Tokens: —
-            </span>
-          </div>
-
-          <p id="developerCreditsHint" class="text-[11px] text-slate-500">Daily credits: —</p>
-
-          <div class="space-y-2">
-            <label class="block text-[10px] uppercase tracking-wide text-slate-400">Secret API Key</label>
-            <div class="flex items-center gap-2">
-              <input
-                id="developerApiKeyInput"
-                type="password"
-                readonly
-                placeholder="No key generated yet"
-                class="flex-1 min-w-0 rounded-lg bg-black border border-edge px-3 py-2 text-xs font-mono text-slate-300 focus:outline-none focus:ring-2 focus:ring-accent"
-              />
-              <button id="copyDeveloperApiKeyBtn" type="button" class="shrink-0 rounded-lg border border-edge px-3 py-2 text-[11px] text-slate-200 hover:bg-slate-800">
-                Copy
-              </button>
-            </div>
-          </div>
-
-          <button id="createDeveloperApiKeyBtn" type="button" class="w-full rounded-lg bg-accent hover:bg-emerald-400 text-black font-semibold py-2 text-sm">
-            Create New Secret Key
-          </button>
-          <p class="text-[10px] text-slate-500 leading-relaxed">Keys start with <span class="font-mono text-slate-400">sk_client_</span>. Store securely — full key is shown once after creation.</p>
-        </div>
+        <button data-nav="pricing" class="nav-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200">
+          Upgrade plan
+        </button>
       </div>
     </aside>
 
     <main class="flex-1 flex flex-col min-h-0 bg-surface">
-      <header class="px-6 py-4 border-b border-edge flex items-center justify-between">
+      <header class="px-5 py-3 border-b border-edge flex items-center justify-between shrink-0">
         <div>
-          <h2 id="screenTitle" class="text-xl font-semibold">Client AI Chat System</h2>
-          <p id="screenSubtitle" class="text-sm text-slate-400">Live model execution and quota-aware responses</p>
+          <h2 id="screenTitle" class="text-base font-semibold">Chat</h2>
+          <p id="screenSubtitle" class="text-xs text-slate-500 sr-only">AI assistant</p>
         </div>
-        <div id="statusPill" class="text-xs px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">System Online</div>
+        <div id="statusPill" class="hidden" aria-hidden="true"></div>
       </header>
 
       <section id="screen-chat" class="screen active flex-1 min-h-0">
-        <div id="trialPaywallAlert" class="hidden px-6 pt-4">
+        <div id="trialPaywallAlert" class="hidden px-5 pt-3">
           <div class="rounded-2xl border border-amber-400/60 bg-gradient-to-r from-amber-500/25 via-yellow-400/15 to-amber-600/25 px-5 py-4 shadow-lg shadow-amber-900/30">
             <p id="trialPaywallMessage" class="text-amber-100 font-semibold text-sm leading-relaxed">
               ⚠️ Your premium trial ends soon. Upgrade now to save your chat logs and unlock permanent features!
@@ -231,37 +183,22 @@
           </div>
         </div>
 
-        <div class="px-6 py-3 border-b border-edge flex flex-wrap items-center gap-3 justify-between">
-          <div class="flex items-center gap-2 text-sm text-slate-300">
-            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 border border-edge">Credits: <strong id="creditHint">2 base / day</strong></span>
-            <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-800 border border-edge">Shares today: <strong id="shareCountHint">0</strong></span>
+        <div class="px-5 py-2 border-b border-edge/60 flex flex-wrap items-center gap-2 justify-between shrink-0">
+          <div class="flex items-center gap-2 text-xs text-slate-400">
+            <span class="px-2 py-1 rounded-md bg-slate-800/80"><span id="creditHint">2</span> messages left today</span>
+            <span class="px-2 py-1 rounded-md bg-slate-800/80" id="shareCountWrap">Shares: <strong id="shareCountHint">0</strong>/3</span>
           </div>
-          <button id="whatsappShareBtn" class="rounded-xl bg-green-600 hover:bg-green-500 text-white px-4 py-2 text-sm font-medium shadow-lg shadow-green-900/30">
-            Share to WhatsApp to Unlock 1 Bonus Credit
+          <button id="whatsappShareBtn" type="button" class="text-xs text-green-400 hover:text-green-300 underline underline-offset-2">
+            Share on WhatsApp for a bonus message
           </button>
         </div>
 
-        <div class="flex flex-1 min-h-0 overflow-hidden">
-          <aside id="chatHistorySidebar" class="hidden w-56 shrink-0 flex flex-col min-h-0 bg-panel/60">
-            <div class="px-3 py-3 border-b border-edge space-y-2 shrink-0">
-              <p class="text-[10px] uppercase tracking-widest text-slate-500 font-semibold">Chat History</p>
-              <button id="newConversationBtn" type="button" class="w-full rounded-lg border border-edge bg-slate-900 hover:bg-slate-800 text-xs py-2 text-slate-200">
-                + New Chat
-              </button>
-            </div>
-            <div id="conversationList" class="chat-scroll flex-1 overflow-y-auto p-2 space-y-1"></div>
-          </aside>
+        <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-4 max-w-3xl mx-auto w-full"></div>
 
-          <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-6 py-4 space-y-4 min-w-0"></div>
-        </div>
-
-        <div class="border-t border-edge p-4 bg-panel">
-          <div class="flex flex-col gap-3">
-            <textarea id="chatInput" rows="3" placeholder="Enter your prompt..." class="w-full resize-none rounded-xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent"></textarea>
-            <div class="flex items-center justify-between gap-3">
-              <p class="text-xs text-slate-400">Responses may be truncated to 1000 words for client tiers.</p>
-              <button id="sendChatBtn" class="rounded-xl bg-accent hover:bg-emerald-400 text-black font-semibold px-5 py-2.5">Execute Prompt</button>
-            </div>
+        <div class="border-t border-edge p-4 bg-panel shrink-0">
+          <div class="max-w-3xl mx-auto flex items-end gap-3">
+            <textarea id="chatInput" rows="1" placeholder="Message AI Universe…" class="flex-1 resize-none rounded-2xl bg-slate-900 border border-edge px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-accent min-h-[44px] max-h-32"></textarea>
+            <button id="sendChatBtn" type="button" class="shrink-0 rounded-xl bg-accent hover:bg-emerald-400 text-black font-semibold px-4 py-3 text-sm">Send</button>
           </div>
         </div>
       </section>
@@ -274,8 +211,8 @@
           </div>
 
           <div class="text-center max-w-3xl mx-auto">
-            <h3 class="text-3xl font-bold">Enterprise Pricing Plans</h3>
-            <p class="text-slate-400 mt-2">Upgrade to continue after your 7-day authorization trial or when daily credits are exhausted.</p>
+            <h3 class="text-2xl font-bold">Choose your plan</h3>
+            <p class="text-slate-400 mt-2 text-sm">Get more daily messages and keep your chat history when you upgrade.</p>
           </div>
 
           <div class="grid md:grid-cols-3 gap-6 max-w-6xl mx-auto pb-8">
@@ -333,14 +270,8 @@
     };
 
     const SCREEN_META = {
-      chat: {
-        title: 'Client AI Chat System',
-        subtitle: 'Live model execution and quota-aware responses',
-      },
-      pricing: {
-        title: 'Pricing Plans',
-        subtitle: 'Commercial upgrade paths and trial lifecycle management',
-      },
+      chat: { title: 'Chat', subtitle: 'AI assistant' },
+      pricing: { title: 'Upgrade', subtitle: 'Choose a plan' },
     };
 
     const TRUNCATION_BADGE = '[TRUNCATED_BADGE_ACTIVE]';
@@ -369,28 +300,18 @@
     };
 
     const el = {
-      apiBase: document.getElementById('apiBase'),
       userEmail: document.getElementById('userEmail'),
       otpVerificationPanel: document.getElementById('otpVerificationPanel'),
       otpVerificationMessage: document.getElementById('otpVerificationMessage'),
       otpCodeInput: document.getElementById('otpCodeInput'),
       verifyOtpBtn: document.getElementById('verifyOtpBtn'),
       resendOtpBtn: document.getElementById('resendOtpBtn'),
-      deviceFingerprint: document.getElementById('deviceFingerprint'),
-      saveIdentityBtn: document.getElementById('saveIdentityBtn'),
-      developerApiCard: document.getElementById('developerApiCard'),
-      developerTokenBalanceBadge: document.getElementById('developerTokenBalanceBadge'),
-      developerCreditsHint: document.getElementById('developerCreditsHint'),
-      developerApiKeyInput: document.getElementById('developerApiKeyInput'),
-      copyDeveloperApiKeyBtn: document.getElementById('copyDeveloperApiKeyBtn'),
-      createDeveloperApiKeyBtn: document.getElementById('createDeveloperApiKeyBtn'),
       screenTitle: document.getElementById('screenTitle'),
       screenSubtitle: document.getElementById('screenSubtitle'),
       statusPill: document.getElementById('statusPill'),
       trialPaywallAlert: document.getElementById('trialPaywallAlert'),
       trialPaywallTime: document.getElementById('trialPaywallTime'),
       trialUpgradeBtn: document.getElementById('trialUpgradeBtn'),
-      chatHistorySidebar: document.getElementById('chatHistorySidebar'),
       conversationList: document.getElementById('conversationList'),
       newConversationBtn: document.getElementById('newConversationBtn'),
       chatTimeline: document.getElementById('chatTimeline'),
@@ -444,15 +365,26 @@
       return Array.from(new Uint8Array(signature), (byte) => byte.toString(16).padStart(2, '0')).join('');
     }
 
+    function ensureDeviceFingerprint() {
+      const existing = localStorage.getItem(STORAGE_KEYS.fingerprint);
+      if (existing) return existing;
+      const generated = generateShareBatchHash().slice(0, 40);
+      localStorage.setItem(STORAGE_KEYS.fingerprint, generated);
+      return generated;
+    }
+
+    function getDeviceFingerprint() {
+      return ensureDeviceFingerprint();
+    }
+
     async function refreshBrowserSessionProof() {
       const email = getClientEmail();
-      const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
-      cachedBrowserSessionProof = await buildBrowserSessionProof(email, fingerprint);
+      cachedBrowserSessionProof = await buildBrowserSessionProof(email, getDeviceFingerprint());
     }
 
     function getClientHeaders() {
       const email = getClientEmail();
-      const fingerprint = (el.deviceFingerprint.value || localStorage.getItem(STORAGE_KEYS.fingerprint) || '').trim();
+      const fingerprint = getDeviceFingerprint();
       return {
         'Content-Type': 'application/json',
         'x-user-email': email,
@@ -544,7 +476,6 @@
         if (!response.ok) return;
         state.conversations = payload.conversations || [];
         renderConversationList();
-        el.chatHistorySidebar?.classList.remove('hidden');
       } catch {
         // history load is best-effort
       }
@@ -579,11 +510,19 @@
       }
     }
 
+    function updateCreditHint(creditsUsed, creditLimit) {
+      const limit = typeof creditLimit === 'number' ? creditLimit : 2;
+      const used = typeof creditsUsed === 'number' ? creditsUsed : 0;
+      const remaining = Math.max(0, limit - used);
+      if (el.creditHint) el.creditHint.textContent = String(remaining);
+    }
+
     function startNewConversation() {
+      setActiveScreen('chat');
       state.activeConversationId = null;
       renderConversationList();
       el.chatTimeline.innerHTML = '';
-      appendChatMessage('assistant', 'New conversation started. Ask your first question.', ['Ready']);
+      appendChatMessage('assistant', 'How can I help you today?', []);
     }
 
     function showToast(message, type) {
@@ -611,8 +550,8 @@
       document.querySelectorAll('.nav-btn').forEach((btn) => {
         const active = btn.dataset.nav === name;
         btn.className = active
-          ? 'nav-btn w-full text-left px-4 py-3 rounded-xl bg-accent/15 border border-accent/30 text-accent font-medium'
-          : 'nav-btn w-full text-left px-4 py-3 rounded-xl hover:bg-slate-800 border border-transparent text-slate-200';
+          ? 'nav-btn w-full text-left px-3 py-2 rounded-lg text-sm bg-accent/15 border border-accent/30 text-accent font-medium'
+          : 'nav-btn w-full text-left px-3 py-2 rounded-lg text-sm text-slate-400 hover:bg-slate-800 hover:text-slate-200';
       });
 
       const meta = SCREEN_META[name];
@@ -674,7 +613,7 @@
     }
 
     function appendStreamingAssistantMessage(initialTags) {
-      const node = createChatBubble('assistant', '', initialTags || ['SSE Stream']);
+      const node = createChatBubble('assistant', '', initialTags || []);
       return node;
     }
 
@@ -692,7 +631,6 @@
       if (data.censored) tags.push('Scoped Output');
       if (data.credits_bypassed) tags.push('Credits Bypassed');
       if (data.role) tags.push(`Role: ${data.role}`);
-      if (data.mode === 'admin_deep_scrape') tags.push('God Deep-Scrape');
       if (rawText && rawText.trim().endsWith('…')) tags.push('Truncated Response');
       return tags;
     }
@@ -937,10 +875,10 @@
         return;
       }
 
-      appendChatMessage('user', prompt, ['Outbound Request']);
+      appendChatMessage('user', prompt);
       el.chatInput.value = '';
       el.sendChatBtn.disabled = true;
-      const assistantNode = appendStreamingAssistantMessage(['SSE Stream']);
+      const assistantNode = appendStreamingAssistantMessage();
 
       try {
         await refreshBrowserSessionProof();
@@ -986,18 +924,16 @@
         const { meta, fullText, truncated } = await consumeSseChatStream(response, assistantNode, {
           onMeta: (streamMeta) => {
             if (typeof streamMeta.creditsUsed === 'number' && typeof streamMeta.creditLimit === 'number') {
-              el.creditHint.textContent = `${streamMeta.creditsUsed}/${streamMeta.creditLimit} used today`;
+              updateCreditHint(streamMeta.creditsUsed, streamMeta.creditLimit);
             }
           },
         });
 
         renderMarkdownToElement(assistantNode.body, fullText);
-        appendAssistantTags(assistantNode.bubble, buildResponseTags(meta, fullText));
         if (truncated) appendTruncationBadge(assistantNode.bubble);
 
         await loadSessionTrialState();
         await loadConversationList();
-        showToast('Chat response completed.', 'success');
       } catch (error) {
         assistantNode.body.textContent = error.message || 'Network failure during chat execution.';
         showToast(error.message || 'Chat execution failed.', 'error');
@@ -1008,9 +944,8 @@
 
     async function trackWhatsappShare() {
       const email = (el.userEmail.value || '').trim();
-      const fingerprint = (el.deviceFingerprint.value || '').trim();
-      if (!email || !fingerprint) {
-        showToast('Set client email and device fingerprint before sharing.', 'error');
+      if (!email) {
+        showToast('Enter your email address before sharing.', 'error');
         return;
       }
 
@@ -1041,8 +976,8 @@
         el.shareCountHint.textContent = String(state.shareCountToday);
 
         if (payload.bonus_credit_awarded) {
-          el.creditHint.textContent = '3 max / day (bonus applied)';
-          showToast('Bonus credit awarded for today. You now have up to 3 daily credits.', 'success');
+          updateCreditHint(payload.credits_used ?? 0, payload.credit_limit ?? 3);
+          showToast('Bonus unlocked! You have an extra free message today.', 'success');
         } else {
           showToast(
             `Share recorded. Unique shares today: ${payload.unique_shares_today}. Need ${payload.shares_required} for bonus.`,
@@ -1128,7 +1063,7 @@
       el.developerTokenBalanceBadge.textContent = `Tokens: ${formatTokenBalance(tokenBalance)}`;
       el.developerCreditsHint.textContent = `Daily credits: ${creditsUsed}/${creditLimit} used · ${creditsRemaining} remaining`;
 
-      if (!state.developerApi.fullKeyVisible) {
+      if (!state.developerApi.fullKeyVisible && el.developerApiKeyInput) {
         el.developerApiKeyInput.value = hasApiKey ? maskedKey : '';
         el.developerApiKeyInput.type = 'password';
         el.developerApiKeyInput.placeholder = hasApiKey ? 'Masked key on file' : 'No key generated yet';
@@ -1151,8 +1086,7 @@
 
     async function refreshDeveloperApiDashboard() {
       const email = (el.userEmail.value || '').trim();
-      const fingerprint = (el.deviceFingerprint.value || '').trim();
-      if (!email || !fingerprint) return;
+      if (!email || !getDeviceFingerprint()) return;
 
       try {
         const { response, payload } = await apiRequest('/api/user/session', {
@@ -1195,23 +1129,16 @@
 
     async function createDeveloperApiKey() {
       const email = resolveDeveloperApiKeyEmail();
-      const fingerprint = (
-        el.deviceFingerprint?.value ||
-        localStorage.getItem(STORAGE_KEYS.fingerprint) ||
-        ensureDeviceFingerprint()
-      ).trim();
+      const fingerprint = getDeviceFingerprint();
 
       if (el.userEmail && !el.userEmail.value.trim()) {
         el.userEmail.value = email;
-      }
-      if (el.deviceFingerprint && !el.deviceFingerprint.value.trim()) {
-        el.deviceFingerprint.value = fingerprint;
       }
 
       localStorage.setItem('userEmail', email);
       localStorage.setItem(STORAGE_KEYS.email, email);
 
-      el.createDeveloperApiKeyBtn.disabled = true;
+      if (el.createDeveloperApiKeyBtn) el.createDeveloperApiKeyBtn.disabled = true;
 
       try {
         const response = await fetch(`${getApiBase()}/api/user/generate-api-key`, {
@@ -1250,12 +1177,12 @@
       } catch (error) {
         showToast(error.message || 'API key generation failed.', 'error');
       } finally {
-        el.createDeveloperApiKeyBtn.disabled = false;
+        if (el.createDeveloperApiKeyBtn) el.createDeveloperApiKeyBtn.disabled = false;
       }
     }
 
     async function copyDeveloperApiKey() {
-      const value = (el.developerApiKeyInput.value || '').trim();
+      const value = (el.developerApiKeyInput?.value || '').trim();
       if (!value || value.includes('•')) {
         showToast('Generate a key first, or create a new one to copy the full secret.', 'warn');
         return;
@@ -1269,35 +1196,19 @@
       }
     }
 
-    async function saveIdentity() {
+    async function persistIdentitySilently() {
       const savedEmail = el.userEmail.value.trim().toLowerCase();
+      if (!savedEmail) return;
       localStorage.setItem('userEmail', savedEmail);
       localStorage.setItem(STORAGE_KEYS.email, savedEmail);
-      localStorage.setItem(STORAGE_KEYS.fingerprint, el.deviceFingerprint.value.trim());
+      ensureDeviceFingerprint();
       await refreshBrowserSessionProof();
-      showToast('Client identity saved for API headers.', 'success');
-      refreshDeveloperApiDashboard();
-    }
-
-    function ensureDeviceFingerprint() {
-      const existing = localStorage.getItem(STORAGE_KEYS.fingerprint);
-      if (existing) return existing;
-      const generated = generateShareBatchHash().slice(0, 40);
-      localStorage.setItem(STORAGE_KEYS.fingerprint, generated);
-      return generated;
     }
 
     function loadPersistedValues() {
       localStorage.removeItem(STORAGE_KEYS.apiBase);
-      el.apiBase.value = getApiBase();
       el.userEmail.value = localStorage.getItem(STORAGE_KEYS.email) || '';
-      el.deviceFingerprint.value = ensureDeviceFingerprint();
-      const storedCommercialKey = localStorage.getItem(STORAGE_KEYS.commercialApiKey) || '';
-      if (storedCommercialKey.startsWith('sk_client_') && el.developerApiKeyInput) {
-        el.developerApiKeyInput.value = storedCommercialKey;
-        el.developerApiKeyInput.type = 'password';
-        state.developerApi.fullKeyVisible = true;
-      }
+      ensureDeviceFingerprint();
     }
 
     function bindEvents() {
@@ -1305,11 +1216,8 @@
         btn.addEventListener('click', () => setActiveScreen(btn.dataset.nav));
       });
 
-      el.saveIdentityBtn.addEventListener('click', saveIdentity);
-      el.createDeveloperApiKeyBtn.addEventListener('click', () => {
-        createDeveloperApiKey();
-      });
-      el.copyDeveloperApiKeyBtn.addEventListener('click', copyDeveloperApiKey);
+      el.userEmail.addEventListener('blur', () => { persistIdentitySilently(); });
+      el.userEmail.addEventListener('change', () => { persistIdentitySilently(); });
       el.verifyOtpBtn.addEventListener('click', verifyOtpCode);
       el.resendOtpBtn.addEventListener('click', () => sendOtpCode());
       el.otpCodeInput.addEventListener('keydown', (event) => {
@@ -1328,6 +1236,7 @@
       el.trialUpgradeBtn.addEventListener('click', () => setActiveScreen('pricing'));
       el.whatsappShareBtn.addEventListener('click', trackWhatsappShare);
       el.newConversationBtn?.addEventListener('click', startNewConversation);
+      document.getElementById('brandHomeBtn')?.addEventListener('click', () => setActiveScreen('chat'));
 
       document.querySelectorAll('.pricing-buy').forEach((button) => {
         button.addEventListener('click', () => {
@@ -1355,8 +1264,7 @@
 
     async function loadSessionTrialState() {
       const email = (el.userEmail.value || '').trim();
-      const fingerprint = (el.deviceFingerprint.value || '').trim();
-      if (!email || !fingerprint) return;
+      if (!email || !getDeviceFingerprint()) return;
 
       try {
         const { response, payload } = await apiRequest('/api/user/session', {
@@ -1374,7 +1282,7 @@
         hideOtpVerificationPanel();
         state.sessionMsRemaining = payload.msRemaining;
         if (typeof payload.creditsUsed === 'number' && typeof payload.creditLimit === 'number') {
-          el.creditHint.textContent = `${payload.creditsUsed}/${payload.creditLimit} used today`;
+          updateCreditHint(payload.creditsUsed, payload.creditLimit);
         }
         renderDeveloperApiDashboard(payload);
         updateTrialPaywallAlert(payload);
@@ -1391,7 +1299,7 @@
       await refreshBrowserSessionProof();
       await checkHealth();
       await loadSessionTrialState();
-      appendChatMessage('assistant', 'Welcome to AI Universe Core. Configure your email and device fingerprint, then execute your first prompt.', ['Ready']);
+      appendChatMessage('assistant', 'Hi! Enter your email in the sidebar to get started, then ask me anything.', []);
     }
 
     bootDashboard().catch((error) => {
