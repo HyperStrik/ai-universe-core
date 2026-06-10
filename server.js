@@ -11,7 +11,6 @@ const cors = require('cors');
 const crypto = require('crypto');
 const path = require('path');
 const fse = require('fs-extra');
-const archiver = require('archiver');
 const { spawn } = require('child_process');
 const axios = require('axios');
 const Redis = require('ioredis');
@@ -3534,44 +3533,6 @@ app.get('/api/god-workspace/list', authMiddleware, godModeBypassClientRules, asy
   } catch (err) {
     console.error('[god-workspace]', err.message);
     sendError(res, 500, 'WORKSPACE_LIST_FAILED', err.message || 'Failed to list AI_Workspace files.');
-  }
-});
-
-app.get('/api/god-workspace/download', authMiddleware, godModeBypassClientRules, async (req, res) => {
-  if (!assertUncensoredGodModeFileAccess(req, res)) return;
-
-  try {
-    await ensureAiWorkspaceReady();
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `AI_Workspace-${timestamp}.zip`;
-
-    res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-
-    const archive = archiver('zip', { zlib: { level: 9 } });
-
-    archive.on('error', (err) => {
-      console.error('[god-workspace] Zip archive error:', err.message);
-      if (!res.headersSent) {
-        sendError(res, 500, 'WORKSPACE_ZIP_FAILED', err.message || 'Failed to build workspace zip.');
-      } else {
-        res.end();
-      }
-    });
-
-    archive.pipe(res);
-    archive.glob('**/*', {
-      cwd: AI_WORKSPACE_ROOT,
-      ignore: ['god_mode_persistent_chat.json'],
-      dot: false,
-    });
-    await archive.finalize();
-    console.log(`[god-workspace] Project zip download started: ${filename}`);
-  } catch (err) {
-    console.error('[god-workspace]', err.message);
-    if (!res.headersSent) {
-      sendError(res, 500, 'WORKSPACE_ZIP_FAILED', err.message || 'Failed to download AI_Workspace project.');
-    }
   }
 });
 

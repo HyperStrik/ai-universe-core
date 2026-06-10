@@ -13,7 +13,6 @@
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.107.0",
-    "archiver": "^8.0.0",
     "axios": "^1.17.0",
     "bullmq": "^5.78.0",
     "cors": "^2.8.6",

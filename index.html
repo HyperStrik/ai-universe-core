@@ -56,25 +56,226 @@
       letter-spacing: 0.08em;
       text-transform: uppercase;
     }
-    .god-workspace-grid {
+    .god-cursor-grid {
       display: grid;
-      grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(280px, 360px);
-      min-height: 0;
+      grid-template-columns: 250px minmax(0, 1fr) 350px;
       flex: 1;
-    }
-    .god-center-stack {
-      display: grid;
-      grid-template-rows: minmax(0, 1fr) 190px;
       min-height: 0;
-      border-right: 1px solid #1f2937;
+      height: 100%;
+      width: 100%;
+      overflow: hidden;
+    }
+    #screen-godmode.god-mode-fullscreen {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      width: 100vw;
+      height: 100vh;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      background: #1e1e1e;
+    }
+    #godmodePanels.god-mode-workspace-shell {
+      width: 100vw;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      flex: 1;
+      min-height: 0;
+      background: #1e1e1e;
+      color: #fff;
+      display: flex;
+      flex-direction: column;
+    }
+    body.god-mode-active #app > aside,
+    body.god-mode-active #app > main > header {
+      display: none;
+    }
+    body.god-mode-active #app > main {
+      width: 100vw;
+      height: 100vh;
+      max-width: 100vw;
+      flex: 1;
+      min-height: 0;
+    }
+    .god-tree-toggle { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .god-tree-file { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .god-center-stack {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+      height: 100%;
+      overflow: hidden;
+      border-right: 1px solid #2b2b2b;
+      background: #1e1e1e;
+    }
+    .god-ide-menubar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      height: 30px;
+      padding: 0 12px;
+      background: #252526;
+      border-bottom: 1px solid #2b2b2b;
+      font-size: 12px;
+      color: #cccccc;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .god-ide-menu-item {
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: default;
+    }
+    .god-ide-menu-item:hover { background: rgba(255, 255, 255, 0.06); }
+    .god-tab-bar {
+      display: flex;
+      align-items: stretch;
+      height: 35px;
+      background: #252526;
+      border-bottom: 1px solid #2b2b2b;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+    .god-tab {
+      display: inline-flex;
+      align-items: center;
+      max-width: 220px;
+      padding: 0 14px;
+      font-size: 11px;
+      color: #969696;
+      background: #2d2d2d;
+      border-right: 1px solid #1e1e1e;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .god-tab.active {
+      color: #ffffff;
+      background: #1e1e1e;
+      border-top: 1px solid #007acc;
+    }
+    .god-editor-stack {
+      display: flex;
+      flex-direction: column;
+      flex: 1 1 auto;
+      min-height: 0;
+      overflow: hidden;
+      position: relative;
+    }
+    .god-editor-surface {
+      flex: 1 1 auto;
+      min-height: 0;
+      width: 100%;
+      overflow: hidden;
+    }
+    .god-editor-surface.hidden { display: none !important; }
+    .god-editor-surface-diff { min-height: 0; }
+    .god-diff-review-bar {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      z-index: 30;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 8px;
+      border: 1px solid #3c3c3c;
+      background: rgba(37, 37, 38, 0.95);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(6px);
+    }
+    .god-diff-review-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #858585;
+      margin-right: 4px;
+    }
+    .god-diff-btn-accept {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(78, 201, 176, 0.5);
+      background: rgba(78, 201, 176, 0.12);
+      color: #4ec9b0;
+      font-weight: 600;
+    }
+    .god-diff-btn-accept:hover { background: rgba(78, 201, 176, 0.22); }
+    .god-diff-btn-reject {
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid rgba(244, 135, 113, 0.45);
+      background: rgba(244, 135, 113, 0.1);
+      color: #f48771;
+      font-weight: 600;
+    }
+    .god-diff-btn-reject:hover { background: rgba(244, 135, 113, 0.2); }
+    .god-explorer-section-label {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: #6e6e6e;
+      padding: 6px 8px 4px;
+      font-weight: 600;
+    }
+    .god-terminal-panel {
+      display: flex;
+      flex-direction: column;
+      flex: 0 0 180px;
+      min-height: 120px;
+      max-height: 220px;
+      border-top: 1px solid #2b2b2b;
+      background: #0c0c0c;
+      overflow: hidden;
+    }
+    .god-explorer-pane {
+      width: 250px;
+      background: #252526;
+      border-right: 1px solid #2b2b2b;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .god-explorer-header {
+      flex-shrink: 0;
+    }
+    #godFileExplorer {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+    #godMonacoDiffEditor {
+      flex: 1 1 auto;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .god-ai-pane {
+      width: 350px;
+      background: #252526;
+      border-left: 1px solid #2b2b2b;
     }
     .god-file-item { cursor: pointer; }
-    .god-file-item.active { background: rgba(59, 130, 246, 0.18); color: #93c5fd; }
+    .god-file-item.active { background: rgba(0, 122, 204, 0.22); color: #9cdcfe; }
     .god-terminal-line { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
     .god-terminal-line span { white-space: pre-wrap; }
-    #godMonacoEditor { width: 100%; height: 100%; min-height: 280px; }
+    #godMonacoEditor {
+      flex: 1 1 auto;
+      width: 100%;
+      height: 100%;
+      min-height: 0;
+      overflow: hidden;
+    }
     @media (max-width: 1024px) {
-      .god-workspace-grid { grid-template-columns: 1fr; grid-template-rows: auto auto auto; }
+      .god-cursor-grid { grid-template-columns: 1fr; grid-template-rows: auto 1fr auto; }
+      .god-explorer-pane, .god-ai-pane { width: 100%; max-height: 220px; }
       .god-center-stack { border-right: 0; }
     }
   </style>
@@ -276,7 +477,7 @@
         </div>
       </section>
 
-      <section id="screen-godmode" class="screen flex-1 min-h-0 overflow-hidden">
+      <section id="screen-godmode" class="screen flex-1 min-h-0 overflow-hidden w-full h-full m-0 p-0">
         <div class="px-6 py-4 border-b border-edge grid lg:grid-cols-2 gap-4">
           <div>
             <label class="text-xs uppercase tracking-wide text-slate-400">Master Admin Key</label>
@@ -289,66 +490,88 @@
 
         <div id="godmodeLocked" class="px-6 py-8 text-center text-slate-400">Enter and save a valid master admin key to access operational controllers.</div>
 
-        <div id="godmodePanels" class="hidden flex-1 min-h-0 flex flex-col">
-          <div class="px-4 py-2 border-b border-edge flex items-center justify-between gap-3 bg-slate-950/60">
-            <div class="flex items-center gap-2 text-xs uppercase tracking-widest text-accent2 font-semibold">
-              <span>⚡ Cursor Clone Workspace</span>
-              <span class="text-slate-500 normal-case tracking-normal">God Mode · uncensored</span>
+        <div id="godmodePanels" class="hidden w-screen h-screen m-0 p-0 overflow-hidden bg-[#1e1e1e] text-white flex flex-col flex-1 min-h-0">
+          <div class="shrink-0 h-9 px-3 border-b border-[#2b2b2b] bg-[#252526] flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2 text-[11px] tracking-wide text-[#cccccc] font-medium">
+              <span class="text-[#007acc]">●</span>
+              <span>AI Universe · God Mode Workspace</span>
             </div>
-            <button id="toggleGodOpsBtn" type="button" class="text-xs px-3 py-1.5 rounded-lg border border-edge hover:bg-slate-800 text-slate-300">
+            <button id="toggleGodOpsBtn" type="button" class="text-[11px] px-2.5 py-1 rounded border border-[#3c3c3c] hover:bg-[#2a2d2e] text-[#cccccc]">
               Admin Ops
             </button>
           </div>
 
-          <div id="godOpsPanel" class="hidden border-b border-edge px-4 py-4 space-y-4 bg-panel/80">
+          <div id="godOpsPanel" class="hidden shrink-0 border-b border-[#2b2b2b] px-4 py-3 space-y-3 bg-[#2d2d2d]">
             <div class="flex flex-col lg:flex-row gap-3">
-              <input id="deepScrapeQuery" type="text" placeholder="Deep-Scrape query..." class="god-scrape-glow flex-1 rounded-xl bg-slate-950 border border-accent2/40 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent2" />
-              <button id="deepScrapeBtn" class="rounded-xl bg-gradient-to-r from-accent2 to-purple-600 text-white font-semibold px-5 py-2 text-sm shrink-0">Deep-Scrape</button>
+              <input id="deepScrapeQuery" type="text" placeholder="Deep-Scrape query..." class="god-scrape-glow flex-1 rounded bg-[#1e1e1e] border border-[#3c3c3c] px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[#007acc]" />
+              <button id="deepScrapeBtn" class="rounded bg-[#007acc] hover:bg-[#1a8ad4] text-white font-medium px-4 py-2 text-sm shrink-0">Deep-Scrape</button>
             </div>
-            <pre id="adminConsole" class="console-scroll hidden max-h-24 overflow-y-auto p-2 text-xs text-emerald-300 whitespace-pre-wrap rounded-lg bg-black/50 border border-edge"></pre>
+            <pre id="adminConsole" class="console-scroll hidden max-h-24 overflow-y-auto p-2 text-xs text-emerald-300 whitespace-pre-wrap rounded bg-black/50 border border-[#3c3c3c]"></pre>
           </div>
 
-          <div class="god-workspace-grid flex-1 min-h-0">
-            <aside class="border-r border-edge bg-[#0d1117] flex flex-col min-h-0">
-              <div class="px-3 py-2 border-b border-edge space-y-2">
-                <button id="downloadGodProjectBtn" type="button" class="w-full rounded-lg bg-accent2/20 hover:bg-accent2/30 border border-accent2/40 text-accent2 text-[11px] font-semibold px-3 py-2 transition-colors">
-                  ⬇ Download Project (.zip)
+          <div class="god-cursor-grid flex-1 min-h-0 w-full h-full m-0 p-0 overflow-hidden">
+            <aside class="god-explorer-pane min-h-0 h-full overflow-hidden">
+              <div class="god-explorer-header px-3 py-2 border-b border-[#2b2b2b] space-y-2 bg-[#252526]">
+                <button id="syncLocalFolderBtn" type="button" class="w-full rounded bg-[#2d2d2d] hover:bg-[#37373d] border border-[#3c3c3c] text-[#4ec9b0] text-[11px] font-semibold px-3 py-1.5 transition-colors">
+                  Sync Local Folder
                 </button>
-                <div class="flex items-center justify-between">
-                  <span class="text-[10px] uppercase tracking-widest text-slate-400 font-semibold">Explorer</span>
-                  <button id="refreshGodFilesBtn" type="button" class="text-[10px] text-accent2 hover:text-blue-300">Refresh</button>
-                </div>
+                <p id="godLocalFolderBadge" class="text-[10px] text-[#858585] truncate px-1" title="No local folder synced">Local: not synced</p>
               </div>
-              <div id="godFileExplorer" class="chat-scroll flex-1 overflow-y-auto p-2 text-xs text-slate-300 space-y-0.5"></div>
+              <div class="flex items-center justify-between px-3 py-1.5 border-b border-[#2b2b2b] shrink-0 bg-[#252526]">
+                <span class="text-[10px] uppercase tracking-widest text-[#858585] font-semibold">Local Explorer</span>
+                <button id="refreshGodFilesBtn" type="button" class="text-[10px] text-[#3794ff] hover:text-[#9cdcfe]" title="Refresh server workspace index">Refresh</button>
+              </div>
+              <div id="godFileExplorer" class="chat-scroll overflow-y-auto overflow-x-hidden p-2 text-xs text-[#cccccc]"></div>
             </aside>
 
-            <section class="god-center-stack min-h-0 bg-[#1e1e1e]">
-              <div class="flex flex-col min-h-0 border-b border-edge">
-                <div class="px-3 py-1.5 border-b border-edge bg-[#252526] flex items-center justify-between gap-2">
-                  <span id="godMonacoTab" class="text-[10px] uppercase tracking-widest text-slate-400 truncate">Monaco Editor</span>
-                  <span class="text-[10px] text-slate-500 shrink-0">AI_Workspace</span>
+            <section class="god-center-stack min-w-0 min-h-0 h-full overflow-hidden">
+              <div class="god-ide-menubar">
+                <span class="god-ide-menu-item">File</span>
+                <span class="god-ide-menu-item">Edit</span>
+                <span class="god-ide-menu-item">Terminal</span>
+                <div class="ml-auto flex items-center gap-2">
+                  <button id="acceptGodMonacoBtn" type="button" disabled class="text-[10px] px-2 py-0.5 rounded border border-[#4ec9b0]/40 text-[#4ec9b0] hover:bg-[#4ec9b0]/10 font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                    Accept Changes
+                  </button>
+                  <span class="text-[10px] text-[#858585]">AI_Workspace</span>
                 </div>
-                <div id="godMonacoEditor" class="flex-1 min-h-0"></div>
               </div>
-              <div class="flex flex-col min-h-0 bg-black">
-                <div class="px-3 py-1.5 border-b border-edge bg-[#0a0a0a] flex items-center gap-2">
-                  <span class="text-[10px] uppercase tracking-widest text-slate-500 shrink-0">Terminal</span>
-                  <input id="godTerminalInput" type="text" placeholder="node workspace/app.js" class="flex-1 min-w-0 rounded bg-black border border-edge px-2 py-1 text-[11px] text-emerald-300 focus:outline-none focus:ring-1 focus:ring-accent2 font-mono" />
-                  <button id="godTerminalRunBtn" type="button" class="shrink-0 text-[10px] px-2.5 py-1 rounded border border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 font-semibold">Run</button>
+
+              <div id="godMonacoTabBar" class="god-tab-bar">
+                <span id="godMonacoTab" class="god-tab active" title="Active editor tab">untitled</span>
+              </div>
+
+              <div class="god-editor-stack">
+                <div id="godDiffReviewBar" class="god-diff-review-bar hidden">
+                  <span class="god-diff-review-label">AI Diff Review</span>
+                  <button id="acceptGodDiffBtn" type="button" class="god-diff-btn-accept">Accept Changes (Ctrl + Enter)</button>
+                  <button id="rejectGodDiffBtn" type="button" class="god-diff-btn-reject">Reject</button>
                 </div>
-                <pre id="godTerminal" class="god-terminal-line chat-scroll flex-1 overflow-y-auto p-3 text-[11px] whitespace-pre-wrap"></pre>
+                <div id="godMonacoEditorHost" class="god-editor-surface">
+                  <div id="godMonacoEditor" class="w-full h-full min-h-0"></div>
+                </div>
+                <div id="godMonacoDiffEditor" class="god-editor-surface god-editor-surface-diff hidden"></div>
+              </div>
+
+              <div class="god-terminal-panel">
+                <div class="px-3 py-1.5 border-b border-[#2b2b2b] bg-[#1e1e1e] flex items-center gap-2 shrink-0">
+                  <span class="text-[10px] uppercase tracking-widest text-[#858585] shrink-0">Terminal</span>
+                  <input id="godTerminalInput" type="text" placeholder="node workspace/app.js" class="flex-1 min-w-0 rounded bg-[#0c0c0c] border border-[#3c3c3c] px-2 py-1 text-[11px] text-[#4ec9b0] focus:outline-none focus:ring-1 focus:ring-[#007acc] font-mono" />
+                  <button id="godTerminalRunBtn" type="button" class="shrink-0 text-[10px] px-2.5 py-1 rounded border border-[#4ec9b0]/40 text-[#4ec9b0] hover:bg-[#4ec9b0]/10 font-semibold">Run</button>
+                </div>
+                <pre id="godTerminal" class="god-terminal-line chat-scroll flex-1 overflow-y-auto p-3 text-[11px] whitespace-pre-wrap text-[#cccccc] min-h-0"></pre>
               </div>
             </section>
 
-            <aside class="flex flex-col min-h-0 bg-panel border-l border-edge">
-              <div class="px-4 py-3 border-b border-edge">
-                <h3 class="font-semibold text-sm text-accent2">Ctrl+L · Dolphin Chat</h3>
-                <p class="text-[11px] text-slate-400 mt-1">Uncensored God Mode dialogue</p>
+            <aside class="god-ai-pane flex flex-col min-h-0 h-full overflow-hidden">
+              <div class="px-4 py-3 border-b border-[#2b2b2b] bg-[#252526] shrink-0">
+                <h3 class="font-semibold text-sm text-[#cccccc]">AI Assistant</h3>
+                <p class="text-[11px] text-[#858585] mt-1">Ctrl+L · Dolphin · God Mode</p>
               </div>
-              <div id="godDirectChatHistory" class="chat-scroll flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 text-sm leading-relaxed min-h-0"></div>
-              <div class="p-3 border-t border-edge space-y-2">
-                <input id="godDirectChatInput" type="text" placeholder="Ask Dolphin to build, explain, or architect..." class="w-full rounded-xl bg-slate-900 border border-edge px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-accent2" />
-                <button id="godDirectChatSendBtn" type="button" class="w-full rounded-xl bg-accent2 hover:bg-blue-500 text-white font-semibold px-4 py-2.5 text-sm">Send</button>
+              <div id="godDirectChatHistory" class="chat-scroll flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-3 text-sm leading-relaxed min-h-0 text-[#d4d4d4]"></div>
+              <div class="p-3 border-t border-[#2b2b2b] space-y-2 shrink-0 bg-[#252526]">
+                <input id="godDirectChatInput" type="text" placeholder="Ask AI to build, explain, or refactor..." class="w-full rounded bg-[#1e1e1e] border border-[#3c3c3c] px-3 py-2.5 text-sm text-white placeholder:text-[#6e6e6e] focus:outline-none focus:ring-1 focus:ring-[#007acc]" />
+                <button id="godDirectChatSendBtn" type="button" class="w-full rounded bg-[#007acc] hover:bg-[#1a8ad4] text-white font-semibold px-4 py-2.5 text-sm">Send</button>
               </div>
             </aside>
           </div>
@@ -409,12 +632,29 @@
         files: {},
         activeFile: null,
         treeEntries: [],
+        localTreeEntries: [],
+        localDirHandle: null,
+        localDirName: '',
+        localFileHandles: {},
+        expandedDirs: new Set(['']),
         monacoReady: false,
+        monacoDirty: false,
+        editorMode: 'code',
+        diffReview: {
+          active: false,
+          filePath: null,
+          originalContent: '',
+          proposedContent: '',
+        },
+        streamDiffBaseline: null,
+        streamDiffBaselineCaptured: false,
         runInProgress: false,
       },
     };
 
     let godMonacoEditor = null;
+    let godMonacoDiffEditor = null;
+    let godMonacoSuppressDirty = false;
 
     const el = {
       apiBase: document.getElementById('apiBase'),
@@ -457,9 +697,20 @@
       godDirectChatInput: document.getElementById('godDirectChatInput'),
       godDirectChatSendBtn: document.getElementById('godDirectChatSendBtn'),
       godFileExplorer: document.getElementById('godFileExplorer'),
+      syncLocalFolderBtn: document.getElementById('syncLocalFolderBtn'),
+      godLocalFolderBadge: document.getElementById('godLocalFolderBadge'),
+      acceptGodMonacoBtn: document.getElementById('acceptGodMonacoBtn'),
+      godDiffReviewBar: document.getElementById('godDiffReviewBar'),
+      acceptGodDiffBtn: document.getElementById('acceptGodDiffBtn'),
+      rejectGodDiffBtn: document.getElementById('rejectGodDiffBtn'),
+      godMonacoEditorHost: document.getElementById('godMonacoEditorHost'),
+      godMonacoDiffEditorHost: document.getElementById('godMonacoDiffEditor'),
+      screenGodmode: document.getElementById('screen-godmode'),
       refreshGodFilesBtn: document.getElementById('refreshGodFilesBtn'),
-      downloadGodProjectBtn: document.getElementById('downloadGodProjectBtn'),
       godMonacoTab: document.getElementById('godMonacoTab'),
+      godEditorStack: document.querySelector('.god-editor-stack'),
+      godCenterStack: document.querySelector('.god-center-stack'),
+      godCursorGrid: document.querySelector('.god-cursor-grid'),
       godTerminal: document.getElementById('godTerminal'),
       godTerminalInput: document.getElementById('godTerminalInput'),
       godTerminalRunBtn: document.getElementById('godTerminalRunBtn'),
@@ -555,10 +806,484 @@
         el.pricingAlertText.textContent = state.pricingReason || 'Select a plan to restore full platform access and increase daily AI credits.';
       }
 
+      const godFullscreen = name === 'godmode' && state.adminUnlocked;
+      document.body.classList.toggle('god-mode-active', godFullscreen);
+      if (el.screenGodmode) {
+        el.screenGodmode.classList.toggle('god-mode-fullscreen', godFullscreen);
+      }
+      if (el.godmodePanels) {
+        el.godmodePanels.classList.toggle('god-mode-workspace-shell', godFullscreen);
+      }
+
       if (name === 'godmode' && state.adminUnlocked) {
         initGodMonacoEditor();
         refreshGodFileExplorer();
-        requestAnimationFrame(() => godMonacoEditor?.layout());
+        layoutGodMonacoSurfaces();
+      }
+    }
+
+    let godMonacoLayoutRaf = 0;
+
+    function layoutGodMonacoSurfaces() {
+      if (godMonacoLayoutRaf) cancelAnimationFrame(godMonacoLayoutRaf);
+      godMonacoLayoutRaf = requestAnimationFrame(() => {
+        godMonacoLayoutRaf = 0;
+        godMonacoEditor?.layout();
+        godMonacoDiffEditor?.layout();
+      });
+    }
+
+    function bindGodMonacoLayoutObservers() {
+      if (window.__godMonacoObserversBound) return;
+      window.__godMonacoObserversBound = true;
+
+      const resizeTargets = [
+        el.godEditorStack,
+        el.godCenterStack,
+        el.godCursorGrid,
+        el.godDirectChatHistory,
+        el.godMonacoEditorHost,
+        el.godMonacoDiffEditorHost,
+      ].filter(Boolean);
+
+      const resizeObserver = new ResizeObserver(() => layoutGodMonacoSurfaces());
+      resizeTargets.forEach((node) => resizeObserver.observe(node));
+
+      if (el.godDirectChatHistory) {
+        const chatMutationObserver = new MutationObserver(() => layoutGodMonacoSurfaces());
+        chatMutationObserver.observe(el.godDirectChatHistory, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+        });
+      }
+    }
+
+    function updateGodMonacoAcceptButton() {
+      if (!el.acceptGodMonacoBtn) return;
+      const inDiff = state.godWorkspace.diffReview.active;
+      const canAccept =
+        inDiff || Boolean(state.godWorkspace.monacoDirty && state.godWorkspace.activeFile);
+      el.acceptGodMonacoBtn.disabled = !canAccept;
+      el.acceptGodMonacoBtn.textContent = inDiff
+        ? 'Accept Changes (Ctrl + Enter)'
+        : 'Accept Changes';
+    }
+
+    function resetGodStreamDiffBaseline() {
+      state.godWorkspace.streamDiffBaseline = null;
+      state.godWorkspace.streamDiffBaselineCaptured = false;
+    }
+
+    function getGodFileBaselineContent(filePath) {
+      if (!filePath) return '';
+      if (state.godWorkspace.files[filePath] != null) {
+        return state.godWorkspace.files[filePath];
+      }
+      if (
+        godMonacoEditor &&
+        state.godWorkspace.activeFile === filePath &&
+        !state.godWorkspace.diffReview.active
+      ) {
+        return godMonacoEditor.getValue();
+      }
+      return '';
+    }
+
+    function closeGodDiffReview() {
+      if (godMonacoDiffEditor) {
+        const models = godMonacoDiffEditor.getModel();
+        models?.original?.dispose();
+        models?.modified?.dispose();
+        godMonacoDiffEditor.dispose();
+        godMonacoDiffEditor = null;
+      }
+
+      el.godMonacoEditorHost?.classList.remove('hidden');
+      el.godMonacoDiffEditorHost?.classList.add('hidden');
+      el.godDiffReviewBar?.classList.add('hidden');
+
+      state.godWorkspace.diffReview = {
+        active: false,
+        filePath: null,
+        originalContent: '',
+        proposedContent: '',
+      };
+      state.godWorkspace.editorMode = 'code';
+      layoutGodMonacoSurfaces();
+      updateGodMonacoAcceptButton();
+    }
+
+    function openGodDiffReview(filePath, originalContent, proposedContent) {
+      if (!state.godWorkspace.monacoReady || !window.monaco) return;
+
+      const original = originalContent ?? '';
+      const proposed = proposedContent ?? '';
+      const lang = detectMonacoLanguage(filePath);
+
+      state.godWorkspace.diffReview = {
+        active: true,
+        filePath,
+        originalContent: original,
+        proposedContent: proposed,
+      };
+      state.godWorkspace.editorMode = 'diff';
+      state.godWorkspace.activeFile = filePath;
+
+      el.godMonacoEditorHost?.classList.add('hidden');
+      el.godMonacoDiffEditorHost?.classList.remove('hidden');
+      el.godDiffReviewBar?.classList.remove('hidden');
+
+      if (godMonacoDiffEditor) {
+        const models = godMonacoDiffEditor.getModel();
+        models?.original?.dispose();
+        models?.modified?.dispose();
+        godMonacoDiffEditor.dispose();
+        godMonacoDiffEditor = null;
+      }
+
+      const originalModel = monaco.editor.createModel(original, lang);
+      const modifiedModel = monaco.editor.createModel(proposed, lang);
+
+      godMonacoDiffEditor = monaco.editor.createDiffEditor(el.godMonacoDiffEditorHost, {
+        theme: 'vs-dark',
+        automaticLayout: true,
+        readOnly: false,
+        renderSideBySide: true,
+      });
+      godMonacoDiffEditor.setModel({ original: originalModel, modified: modifiedModel });
+
+      if (el.godMonacoTab) {
+        const tabLabel = filePath.split('/').pop() || filePath;
+        el.godMonacoTab.textContent = `review: ${tabLabel}`;
+        el.godMonacoTab.title = `Diff review · ${filePath}`;
+      }
+
+      updateGodMonacoAcceptButton();
+      layoutGodMonacoSurfaces();
+      appendGodTerminalLog(`Diff review opened · ${filePath}`, 'info');
+    }
+
+    function updateGodDiffReview(filePath, originalContent, proposedContent) {
+      if (!filePath) return;
+
+      if (!state.godWorkspace.diffReview.active || state.godWorkspace.diffReview.filePath !== filePath) {
+        openGodDiffReview(filePath, originalContent, proposedContent);
+        return;
+      }
+
+      state.godWorkspace.diffReview.proposedContent = proposedContent ?? '';
+      const models = godMonacoDiffEditor?.getModel();
+      if (models?.modified) {
+        const currentModified = models.modified.getValue();
+        if (currentModified !== proposedContent) {
+          models.modified.setValue(proposedContent ?? '');
+        }
+      } else {
+        openGodDiffReview(filePath, originalContent, proposedContent);
+      }
+      layoutGodMonacoSurfaces();
+    }
+
+    async function acceptGodDiffReview() {
+      const { filePath, proposedContent } = state.godWorkspace.diffReview;
+      if (!filePath) {
+        showToast('No diff review is active.', 'warn');
+        return;
+      }
+
+      let content = proposedContent || '';
+      const models = godMonacoDiffEditor?.getModel();
+      if (models?.modified) {
+        content = models.modified.getValue();
+      }
+
+      closeGodDiffReview();
+      resetGodStreamDiffBaseline();
+      state.godWorkspace.files[filePath] = content;
+      setGodMonacoContent(content, filePath);
+
+      try {
+        if (state.godWorkspace.localDirHandle) {
+          await writeGodLocalWorkspaceFile(filePath, content);
+          appendGodTerminalLog(`Local disk write: ${filePath}`, 'info');
+        }
+
+        const { response, payload } = await apiRequest('/api/god-workspace/write', {
+          method: 'POST',
+          headers: getAdminHeaders(),
+          body: JSON.stringify({ path: filePath, content }),
+        });
+
+        if (!response.ok) {
+          throw new Error(payload.message || `Server write failed (${response.status})`);
+        }
+
+        if (!state.godWorkspace.treeEntries.find((e) => e.path === filePath)) {
+          state.godWorkspace.treeEntries.push({ type: 'file', path: filePath });
+        }
+
+        state.godWorkspace.monacoDirty = false;
+        updateGodMonacoAcceptButton();
+        renderGodFileExplorer();
+        showToast(`Accepted AI changes · ${filePath}`, 'success');
+        appendGodTerminalLog(`Diff accepted → ${filePath}`, 'info');
+      } catch (err) {
+        showToast(err.message || 'Failed to save accepted changes.', 'error');
+        appendGodTerminalLog(`Diff accept failed: ${err.message}`, 'warn');
+      }
+    }
+
+    function rejectGodDiffReview() {
+      const { filePath, originalContent } = state.godWorkspace.diffReview;
+      closeGodDiffReview();
+      resetGodStreamDiffBaseline();
+
+      if (filePath) {
+        setGodMonacoContent(originalContent || state.godWorkspace.files[filePath] || '', filePath);
+      }
+
+      showToast('AI proposal rejected — original file restored.', 'info');
+      appendGodTerminalLog(`Diff rejected · ${filePath || 'unknown'}`, 'warn');
+    }
+
+    function getMergedGodWorkspaceEntries() {
+      const map = new Map();
+      [...state.godWorkspace.treeEntries, ...state.godWorkspace.localTreeEntries].forEach((entry) => {
+        if (entry?.path) map.set(entry.path, entry);
+      });
+      Object.keys(state.godWorkspace.files).forEach((path) => {
+        if (!map.has(path)) map.set(path, { type: 'file', path });
+      });
+      return Array.from(map.values()).sort((a, b) => a.path.localeCompare(b.path));
+    }
+
+    function ensureGodTreeDir(root, dirPath) {
+      const parts = String(dirPath || '').split('/').filter(Boolean);
+      let node = root;
+      let built = '';
+      parts.forEach((part) => {
+        built = built ? `${built}/${part}` : part;
+        if (!node.children[part]) {
+          node.children[part] = { path: built, children: {}, files: [] };
+        }
+        node = node.children[part];
+      });
+      return node;
+    }
+
+    function buildGodWorkspacePathTree(entries) {
+      const root = { path: '', children: {}, files: [] };
+      entries.forEach((entry) => {
+        if (!entry?.path) return;
+        if (entry.type === 'directory') {
+          ensureGodTreeDir(root, entry.path);
+          return;
+        }
+        const parts = entry.path.split('/').filter(Boolean);
+        let node = root;
+        let built = '';
+        for (let i = 0; i < parts.length; i += 1) {
+          const part = parts[i];
+          const isFile = i === parts.length - 1;
+          built = built ? `${built}/${part}` : part;
+          if (isFile) {
+            node.files.push({ ...entry, fileName: part });
+          } else {
+            if (!node.children[part]) {
+              node.children[part] = { path: built, children: {}, files: [] };
+            }
+            node = node.children[part];
+          }
+        }
+      });
+      return root;
+    }
+
+    function renderGodTreeNode(node, depth) {
+      const fragment = document.createDocumentFragment();
+
+      Object.keys(node.children)
+        .sort()
+        .forEach((name) => {
+          const child = node.children[name];
+          const dirPath = child.path;
+          const expanded = state.godWorkspace.expandedDirs.has(dirPath);
+
+          const dirRow = document.createElement('div');
+          dirRow.className = 'god-tree-dir';
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className =
+            'god-tree-toggle w-full text-left py-1 pr-1 rounded hover:bg-slate-800/70 text-slate-400 font-medium truncate';
+          toggle.style.paddingLeft = `${depth * 12 + 4}px`;
+          toggle.textContent = `${expanded ? '▾' : '▸'} ${name}`;
+          toggle.title = dirPath;
+          toggle.addEventListener('click', () => {
+            if (expanded) state.godWorkspace.expandedDirs.delete(dirPath);
+            else state.godWorkspace.expandedDirs.add(dirPath);
+            renderGodFileExplorer();
+          });
+          dirRow.appendChild(toggle);
+          fragment.appendChild(dirRow);
+
+          if (expanded) {
+            fragment.appendChild(renderGodTreeNode(child, depth + 1));
+          }
+        });
+
+      node.files
+        .slice()
+        .sort((a, b) => a.path.localeCompare(b.path))
+        .forEach((file) => {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = `god-tree-file god-file-item w-full text-left py-1 pr-1 rounded hover:bg-slate-800/80 truncate ${
+            state.godWorkspace.activeFile === file.path ? 'active' : ''
+          }`;
+          btn.style.paddingLeft = `${depth * 12 + 18}px`;
+          btn.textContent = file.fileName || file.path.split('/').pop();
+          btn.title = file.path;
+          btn.addEventListener('click', () => openGodWorkspaceFile(file.path));
+          fragment.appendChild(btn);
+        });
+
+      return fragment;
+    }
+
+    async function scanLocalGodDirectory(dirHandle, basePath = '') {
+      const entries = [];
+      const handles = {};
+
+      for await (const [name, handle] of dirHandle.entries()) {
+        const relPath = basePath ? `${basePath}/${name}` : name;
+        if (handle.kind === 'directory') {
+          entries.push({ type: 'directory', path: relPath, source: 'local' });
+          state.godWorkspace.expandedDirs.add(relPath);
+          const nested = await scanLocalGodDirectory(handle, relPath);
+          entries.push(...nested.entries);
+          Object.assign(handles, nested.handles);
+        } else {
+          entries.push({ type: 'file', path: relPath, source: 'local' });
+          handles[relPath] = handle;
+        }
+      }
+
+      return { entries, handles };
+    }
+
+    async function syncLocalGodWorkspaceFolder() {
+      if (!window.showDirectoryPicker) {
+        showToast('File System Access API is not supported in this browser. Use Chrome or Edge.', 'error');
+        return;
+      }
+
+      try {
+        const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        state.godWorkspace.localDirHandle = dirHandle;
+        state.godWorkspace.localDirName = dirHandle.name;
+        state.godWorkspace.expandedDirs.add('');
+
+        const { entries, handles } = await scanLocalGodDirectory(dirHandle);
+        state.godWorkspace.localTreeEntries = entries;
+        state.godWorkspace.localFileHandles = handles;
+
+        if (el.godLocalFolderBadge) {
+          el.godLocalFolderBadge.textContent = `Local: ${dirHandle.name}`;
+          el.godLocalFolderBadge.title = dirHandle.name;
+        }
+
+        renderGodFileExplorer();
+        appendGodTerminalLog(`Local folder synced: ${dirHandle.name} (${entries.length} entries)`, 'info');
+        showToast(`Local workspace synced: ${dirHandle.name}`, 'success');
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        if (err?.name === 'NotAllowedError' || err?.name === 'SecurityError') {
+          showToast(
+            'Folder permission denied. Re-authorize with Sync Local Folder in Chrome or Edge.',
+            'error'
+          );
+          appendGodTerminalLog(`Local sync permission error: ${err.message}`, 'warn');
+          return;
+        }
+        showToast(err.message || 'Folder sync failed.', 'error');
+        appendGodTerminalLog(`Local sync failed: ${err.message}`, 'warn');
+      }
+    }
+
+    async function readLocalGodFileText(filePath) {
+      const handle = state.godWorkspace.localFileHandles[filePath];
+      if (!handle) return null;
+      try {
+        const file = await handle.getFile();
+        return await file.text();
+      } catch (err) {
+        appendGodTerminalLog(`Local read error (${filePath}): ${err.message}`, 'warn');
+        return null;
+      }
+    }
+
+    async function writeGodLocalWorkspaceFile(relativePath, content) {
+      const parts = String(relativePath || '').split('/').filter(Boolean);
+      if (!parts.length || !state.godWorkspace.localDirHandle) return false;
+
+      let dir = state.godWorkspace.localDirHandle;
+      for (let i = 0; i < parts.length - 1; i += 1) {
+        dir = await dir.getDirectoryHandle(parts[i], { create: true });
+      }
+
+      const fileHandle = await dir.getFileHandle(parts[parts.length - 1], { create: true });
+      const writable = await fileHandle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      state.godWorkspace.localFileHandles[relativePath] = fileHandle;
+      return true;
+    }
+
+    async function acceptGodMonacoChanges() {
+      if (state.godWorkspace.diffReview.active) {
+        return acceptGodDiffReview();
+      }
+
+      if (!state.adminUnlocked || !godMonacoEditor) return;
+
+      const filePath = state.godWorkspace.activeFile;
+      if (!filePath) {
+        showToast('Open a file in the explorer before accepting changes.', 'warn');
+        return;
+      }
+
+      const content = godMonacoEditor.getValue();
+      state.godWorkspace.files[filePath] = content;
+
+      try {
+        if (state.godWorkspace.localDirHandle) {
+          await writeGodLocalWorkspaceFile(filePath, content);
+          appendGodTerminalLog(`Local disk write: ${filePath}`, 'info');
+        }
+
+        const { response, payload } = await apiRequest('/api/god-workspace/write', {
+          method: 'POST',
+          headers: getAdminHeaders(),
+          body: JSON.stringify({ path: filePath, content }),
+        });
+
+        if (!response.ok) {
+          throw new Error(payload.message || `Server write failed (${response.status})`);
+        }
+
+        if (!state.godWorkspace.treeEntries.find((e) => e.path === filePath)) {
+          state.godWorkspace.treeEntries.push({ type: 'file', path: filePath });
+        }
+
+        state.godWorkspace.monacoDirty = false;
+        updateGodMonacoAcceptButton();
+        renderGodFileExplorer();
+        showToast(`Accepted changes · ${filePath}`, 'success');
+        appendGodTerminalLog(`Accepted Monaco changes → ${filePath}`, 'info');
+      } catch (err) {
+        showToast(err.message || 'Failed to accept changes.', 'error');
+        appendGodTerminalLog(`Accept failed: ${err.message}`, 'warn');
       }
     }
 
@@ -710,7 +1435,13 @@
       const parsed = processGodModeStream(fullText);
       let updated = false;
 
+      if (parsed.monacoPath && !state.godWorkspace.streamDiffBaselineCaptured) {
+        state.godWorkspace.streamDiffBaseline = getGodFileBaselineContent(parsed.monacoPath);
+        state.godWorkspace.streamDiffBaselineCaptured = true;
+      }
+
       Object.entries(parsed.files).forEach(([filePath, fileContent]) => {
+        if (filePath === parsed.monacoPath) return;
         state.godWorkspace.files[filePath] = fileContent;
         if (!state.godWorkspace.treeEntries.find((e) => e.path === filePath)) {
           state.godWorkspace.treeEntries.push({ type: 'file', path: filePath });
@@ -719,9 +1450,31 @@
       });
 
       if (parsed.monacoPath) {
-        state.godWorkspace.activeFile = parsed.monacoPath;
-        setGodMonacoContent(parsed.monacoContent, parsed.monacoPath);
+        const filePath = parsed.monacoPath;
+        const proposed = parsed.monacoContent ?? '';
+
+        const baseline = state.godWorkspace.streamDiffBaseline ?? '';
+        const isModification = baseline.length > 0 || Boolean(state.godWorkspace.localFileHandles[filePath]);
+
+        if (isModification && baseline !== proposed) {
+          updateGodDiffReview(filePath, baseline, proposed);
+        } else {
+          if (state.godWorkspace.diffReview.active) {
+            closeGodDiffReview();
+          }
+          state.godWorkspace.files[filePath] = proposed;
+          setGodMonacoContent(proposed, filePath);
+          state.godWorkspace.monacoDirty = true;
+          updateGodMonacoAcceptButton();
+        }
+
+        state.godWorkspace.activeFile = filePath;
         renderGodFileExplorer();
+        layoutGodMonacoSurfaces();
+      }
+
+      if (updated) {
+        layoutGodMonacoSurfaces();
       }
 
       return {
@@ -743,13 +1496,25 @@
       const model = godMonacoEditor.getModel();
       if (model) {
         monaco.editor.setModelLanguage(model, lang);
+        godMonacoSuppressDirty = true;
         model.setValue(content || '');
+        godMonacoSuppressDirty = false;
+        state.godWorkspace.monacoDirty = false;
+        updateGodMonacoAcceptButton();
         const lineCount = model.getLineCount();
         godMonacoEditor.revealLine(lineCount);
       }
-      if (el.godMonacoTab && filePath) {
-        el.godMonacoTab.textContent = filePath;
+      if (el.godMonacoTab) {
+        if (filePath) {
+          const tabLabel = filePath.split('/').pop() || filePath;
+          el.godMonacoTab.textContent = tabLabel;
+          el.godMonacoTab.title = filePath;
+        } else {
+          el.godMonacoTab.textContent = 'untitled';
+          el.godMonacoTab.title = 'untitled';
+        }
       }
+      layoutGodMonacoSurfaces();
     }
 
     function initGodMonacoEditor() {
@@ -771,6 +1536,11 @@
           scrollBeyondLastLine: false,
           wordWrap: 'on',
         });
+        godMonacoEditor.onDidChangeModelContent(() => {
+          if (godMonacoSuppressDirty) return;
+          state.godWorkspace.monacoDirty = true;
+          updateGodMonacoAcceptButton();
+        });
         state.godWorkspace.monacoReady = true;
         if (state.godWorkspace.activeFile) {
           setGodMonacoContent(
@@ -778,7 +1548,12 @@
             state.godWorkspace.activeFile
           );
         }
-        godMonacoEditor.layout();
+        layoutGodMonacoSurfaces();
+        bindGodMonacoLayoutObservers();
+        if (!window.__godMonacoResizeBound) {
+          window.__godMonacoResizeBound = true;
+          window.addEventListener('resize', layoutGodMonacoSurfaces);
+        }
         appendGodTerminalLog(`Monaco Editor ready · API ${getApiBase()}`, 'info');
       });
     }
@@ -787,39 +1562,75 @@
       if (!el.godFileExplorer) return;
       el.godFileExplorer.innerHTML = '';
 
-      const entries = state.godWorkspace.treeEntries.length
-        ? state.godWorkspace.treeEntries
-        : Object.keys(state.godWorkspace.files).map((path) => ({ type: 'file', path }));
+      const localEntries = state.godWorkspace.localTreeEntries || [];
+      const serverEntries = state.godWorkspace.treeEntries || [];
+      const memoryPaths = Object.keys(state.godWorkspace.files).map((path) => ({
+        type: 'file',
+        path,
+      }));
 
-      if (!entries.length) {
-        el.godFileExplorer.innerHTML = '<p class="text-slate-500 px-2 py-1">No workspace files yet.</p>';
+      const hasLocal = localEntries.length > 0;
+      const hasServer = serverEntries.length > 0;
+      const hasMemoryOnly = memoryPaths.some(
+        (entry) =>
+          !localEntries.find((e) => e.path === entry.path) &&
+          !serverEntries.find((e) => e.path === entry.path)
+      );
+
+      if (!hasLocal && !hasServer && !hasMemoryOnly) {
+        el.godFileExplorer.innerHTML =
+          '<p class="text-[#858585] px-2 py-2 leading-relaxed">No files yet. Click <strong class="text-[#4ec9b0]">Sync Local Folder</strong> to mount your project directory.</p>';
         return;
       }
 
-      entries.forEach((entry) => {
-        if (entry.type === 'directory') {
-          const dir = document.createElement('div');
-          dir.className = 'px-2 py-1 text-slate-500 font-semibold';
-          dir.textContent = `📁 ${entry.path}`;
-          el.godFileExplorer.appendChild(dir);
-          return;
-        }
+      if (hasLocal) {
+        const label = document.createElement('div');
+        label.className = 'god-explorer-section-label';
+        label.textContent = `Local · ${state.godWorkspace.localDirName || 'synced'}`;
+        el.godFileExplorer.appendChild(label);
+        el.godFileExplorer.appendChild(renderGodTreeNode(buildGodWorkspacePathTree(localEntries), 0));
+      }
 
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = `god-file-item w-full text-left px-2 py-1.5 rounded-md hover:bg-slate-800/80 truncate ${
-          state.godWorkspace.activeFile === entry.path ? 'active' : ''
-        }`;
-        btn.textContent = `📄 ${entry.path}`;
-        btn.title = entry.path;
-        btn.addEventListener('click', () => openGodWorkspaceFile(entry.path));
-        el.godFileExplorer.appendChild(btn);
-      });
+      if (hasServer) {
+        const label = document.createElement('div');
+        label.className = 'god-explorer-section-label';
+        label.textContent = 'AI_Workspace (Server)';
+        el.godFileExplorer.appendChild(label);
+        el.godFileExplorer.appendChild(renderGodTreeNode(buildGodWorkspacePathTree(serverEntries), 0));
+      }
+
+      if (hasMemoryOnly) {
+        const memoryOnly = memoryPaths.filter(
+          (entry) =>
+            !localEntries.find((e) => e.path === entry.path) &&
+            !serverEntries.find((e) => e.path === entry.path)
+        );
+        if (memoryOnly.length) {
+          const label = document.createElement('div');
+          label.className = 'god-explorer-section-label';
+          label.textContent = 'Session Buffer';
+          el.godFileExplorer.appendChild(label);
+          el.godFileExplorer.appendChild(renderGodTreeNode(buildGodWorkspacePathTree(memoryOnly), 0));
+        }
+      }
     }
 
     async function openGodWorkspaceFile(filePath) {
+      if (state.godWorkspace.diffReview.active) {
+        rejectGodDiffReview();
+      }
+
       state.godWorkspace.activeFile = filePath;
+      resetGodStreamDiffBaseline();
       renderGodFileExplorer();
+
+      const localText = await readLocalGodFileText(filePath);
+      if (localText != null) {
+        state.godWorkspace.files[filePath] = localText;
+        setGodMonacoContent(localText, filePath);
+        appendGodTerminalLog(`Opened local file: ${filePath}`, 'info');
+        return;
+      }
 
       if (state.godWorkspace.files[filePath]) {
         setGodMonacoContent(state.godWorkspace.files[filePath], filePath);
@@ -847,60 +1658,6 @@
       } catch (error) {
         setGodMonacoContent(`// ${filePath}\n// ${error.message}\n`, filePath);
         appendGodTerminalLog(`Explorer read failed: ${error.message}`, 'warn');
-      }
-    }
-
-    async function downloadGodWorkspaceProject() {
-      if (!state.adminUnlocked) {
-        showToast('Unlock God Mode with a valid admin key first.', 'warn');
-        return;
-      }
-
-      const adminKey = (el.adminKey.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
-      el.downloadGodProjectBtn.disabled = true;
-      appendGodTerminalLog('Building AI_Workspace project zip…', 'info');
-
-      try {
-        const response = await fetch(`${getApiBase()}/api/god-workspace/download`, {
-          method: 'GET',
-          headers: {
-            'x-master-admin-key': adminKey,
-            Authorization: adminKey ? `Bearer ${adminKey}` : '',
-          },
-        });
-
-        if (!response.ok) {
-          let message = `Download failed (${response.status})`;
-          try {
-            const payload = await response.json();
-            message = payload.message || message;
-          } catch {
-            // non-json error body
-          }
-          throw new Error(message);
-        }
-
-        const blob = await response.blob();
-        const disposition = response.headers.get('content-disposition') || '';
-        const match = disposition.match(/filename="?([^"]+)"?/i);
-        const filename = match?.[1] || `AI_Workspace-${Date.now()}.zip`;
-
-        const objectUrl = URL.createObjectURL(blob);
-        const anchor = document.createElement('a');
-        anchor.href = objectUrl;
-        anchor.download = filename;
-        document.body.appendChild(anchor);
-        anchor.click();
-        anchor.remove();
-        URL.revokeObjectURL(objectUrl);
-
-        appendGodTerminalLog(`Downloaded ${filename} (${blob.size} bytes)`, 'info');
-        showToast(`Project downloaded: ${filename}`, 'success');
-      } catch (error) {
-        appendGodTerminalLog(`Zip download failed: ${error.message}`, 'error');
-        showToast(error.message || 'Failed to download project zip.', 'error');
-      } finally {
-        el.downloadGodProjectBtn.disabled = false;
       }
     }
 
@@ -1034,7 +1791,10 @@
         });
 
         if (response.ok && Array.isArray(payload.entries)) {
-          state.godWorkspace.treeEntries = payload.entries.filter((e) => e.type === 'file');
+          state.godWorkspace.treeEntries = payload.entries;
+          payload.entries
+            .filter((e) => e.type === 'directory')
+            .forEach((e) => state.godWorkspace.expandedDirs.add(e.path));
           renderGodFileExplorer();
           appendGodTerminalLog(`Workspace index synced (${payload.entries.length} entries).`, 'info');
           return;
@@ -1474,6 +2234,7 @@
       appendGodDirectChatEntry('user', prompt);
       el.godDirectChatInput.value = '';
       el.godDirectChatSendBtn.disabled = true;
+      resetGodStreamDiffBaseline();
       appendGodTerminalLog(`Prompt dispatched → ${getApiBase()}/api/chat`, 'info');
 
       const assistantNode = appendGodDirectChatEntry('assistant', '');
@@ -1542,6 +2303,7 @@
                     ? (streamView.chatDisplay || 'Writing to Monaco workspace…')
                     : (streamView.chatDisplay || fullText);
                   el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
+                  layoutGodMonacoSurfaces();
                 }
               }
             }
@@ -1572,6 +2334,7 @@
               ? (finalView.chatDisplay || 'Workspace files updated — see Monaco editor.')
               : (finalView.chatDisplay || fullText);
             await refreshGodFileExplorer();
+            layoutGodMonacoSurfaces();
             appendGodTerminalLog('God Mode stream completed — workspace synced.', 'info');
           }
         } else {
@@ -2040,6 +2803,11 @@
         initGodMonacoEditor();
         appendGodTerminalLog(`God Mode workspace restored · ${getApiBase()}`, 'info');
         refreshGodFileExplorer();
+        if (state.activeScreen === 'godmode') {
+          document.body.classList.add('god-mode-active');
+          el.screenGodmode?.classList.add('god-mode-fullscreen');
+          el.godmodePanels?.classList.add('god-mode-workspace-shell');
+        }
       }
     }
 
@@ -2078,7 +2846,21 @@
         }
       });
       el.unlockGodModeBtn.addEventListener('click', unlockGodMode);
-      el.downloadGodProjectBtn.addEventListener('click', downloadGodWorkspaceProject);
+      el.syncLocalFolderBtn.addEventListener('click', syncLocalGodWorkspaceFolder);
+      el.acceptGodMonacoBtn.addEventListener('click', acceptGodMonacoChanges);
+      el.acceptGodDiffBtn?.addEventListener('click', acceptGodDiffReview);
+      el.rejectGodDiffBtn?.addEventListener('click', rejectGodDiffReview);
+      document.addEventListener('keydown', (event) => {
+        if (!state.godWorkspace.diffReview.active) return;
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) {
+          event.preventDefault();
+          acceptGodDiffReview();
+        }
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          rejectGodDiffReview();
+        }
+      });
       el.refreshGodFilesBtn.addEventListener('click', refreshGodFileExplorer);
       el.godTerminalRunBtn.addEventListener('click', () => runGodWorkspaceCommand());
       el.godTerminalInput.addEventListener('keydown', (event) => {
