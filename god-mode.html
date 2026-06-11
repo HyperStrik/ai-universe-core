@@ -110,6 +110,7 @@
       <button
         id="chairmanAnchor"
         type="button"
+        title="Double-click to sign out and flush session token"
         class="w-full rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-3 text-left transition-colors group"
       >
         <div class="flex items-center gap-3">
@@ -118,7 +119,7 @@
           </div>
           <div class="min-w-0">
             <p class="text-[10px] uppercase tracking-widest text-amber-400 font-bold">Chairman</p>
-            <p class="text-xs text-slate-300 truncate">Master Owner Root</p>
+            <p id="chairmanSessionHint" class="text-xs text-slate-300 truncate">Master Owner Root</p>
           </div>
           <i class="fa-solid fa-shield-halved text-amber-500/60 ml-auto group-hover:text-amber-400"></i>
         </div>
@@ -210,7 +211,7 @@
         </button>
       </div>
       <p class="max-w-5xl mx-auto text-[10px] text-slate-600 mt-2 text-center">
-        Secured stream · POST /api/v1/chat/completions · Master bypass active
+        Secured stream · POST /api/v1/chat/completions · Dynamic session auth
       </p>
     </footer>
   </main>
@@ -235,21 +236,6 @@
     </div>
   </div>
 
-  <!-- Chairman auth modal (first unlock) -->
-  <div id="authModal" class="hidden fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-    <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4">
-      <div class="text-center">
-        <i class="fa-solid fa-crown text-amber-400 text-2xl mb-2"></i>
-        <h3 class="text-lg font-bold">Chairman Authentication</h3>
-        <p class="text-sm text-slate-400 mt-1">Enter master bypass key to activate the control center.</p>
-      </div>
-      <input id="masterKeyInput" type="password" class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2.5 text-sm" placeholder="sk_god_master_..." />
-      <button id="authUnlockBtn" type="button" class="w-full rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 text-sm">
-        Unlock Control Center
-      </button>
-    </div>
-  </div>
-
   <div id="toastHost" class="fixed bottom-4 right-4 z-[300] space-y-2 pointer-events-none"></div>
 
   <script>
@@ -257,11 +243,12 @@
       'use strict';
 
       const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
-      const MASTER_ADMIN_KEY = 'ARYAN@kush6#Meetraj';
       const REGISTERED_EMAIL = 'demoa2735@gmail.com';
-      const STORAGE_KEY_MASTER = 'auc_god_master_api_key';
+      const SESSION_TOKEN_KEY = 'god_master_session_token';
+      const LEGACY_TOKEN_KEYS = ['auc_god_master_api_key', 'auc_admin_key'];
       const CHAT_ENDPOINT = '/api/v1/chat/completions';
       const DEFAULT_MODEL = 'dolphin-llama3';
+      const SESSION_PROMPT_MSG = 'Enter Master Admin Credentials for God Mode Activation:';
 
       const AGENTS = [
         {
@@ -344,22 +331,65 @@
         workforceModal: document.getElementById('workforceModal'),
         workforceGrid: document.getElementById('workforceGrid'),
         workforceCloseBtn: document.getElementById('workforceCloseBtn'),
-        authModal: document.getElementById('authModal'),
-        masterKeyInput: document.getElementById('masterKeyInput'),
-        authUnlockBtn: document.getElementById('authUnlockBtn'),
+        chairmanSessionHint: document.getElementById('chairmanSessionHint'),
         toastHost: document.getElementById('toastHost'),
       };
+
+      let chairmanClickCount = 0;
+      let chairmanClickTimer = null;
 
       function getApiBase() {
         return PRODUCTION_API_BASE.replace(/\/$/, '');
       }
 
-      function getMasterKey() {
-        return MASTER_ADMIN_KEY;
+      function getSessionToken() {
+        return (localStorage.getItem(SESSION_TOKEN_KEY) || '').trim();
+      }
+
+      function updateSessionIndicator() {
+        const active = Boolean(getSessionToken());
+        if (el.chairmanSessionHint) {
+          el.chairmanSessionHint.textContent = active ? 'Session active · double-click to sign out' : 'No session · reload to authenticate';
+        }
+      }
+
+      function ensureSessionToken() {
+        let token = getSessionToken();
+        if (token) {
+          updateSessionIndicator();
+          return token;
+        }
+
+        const userInput = window.prompt(SESSION_PROMPT_MSG);
+        if (!userInput || !String(userInput).trim()) {
+          updateSessionIndicator();
+          showToast('God Mode activation cancelled. Dispatch is disabled until credentials are provided.', 'warn');
+          return null;
+        }
+
+        token = String(userInput).trim();
+        localStorage.setItem(SESSION_TOKEN_KEY, token);
+        LEGACY_TOKEN_KEYS.forEach((legacyKey) => localStorage.removeItem(legacyKey));
+        updateSessionIndicator();
+        showToast('Chairman session activated.', 'success');
+        return token;
+      }
+
+      function flushSessionToken() {
+        localStorage.removeItem(SESSION_TOKEN_KEY);
+        LEGACY_TOKEN_KEYS.forEach((legacyKey) => localStorage.removeItem(legacyKey));
+        el.chatTimeline.innerHTML = '';
+        updateSessionIndicator();
+        showToast('Chairman session cleared.', 'info');
+        ensureSessionToken();
+        appendWelcomeMessage();
       }
 
       function getAdminHeaders() {
-        const key = getMasterKey();
+        const key = getSessionToken();
+        if (!key) {
+          throw new Error('No active chairman session. Authenticate to continue.');
+        }
         return {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
@@ -695,6 +725,11 @@
         const message = String(prompt || '').trim();
         if (!message) return;
 
+        if (!getSessionToken()) {
+          const activated = ensureSessionToken();
+          if (!activated) return;
+        }
+
         if (autonomousStopped) {
           showToast('Autonomous agents are halted. Reset via Chairman panel to resume.', 'warn');
           return;
@@ -798,20 +833,21 @@
         showToast('Autonomous agents resumed.', 'success');
       }
 
-      function showAuthModal() {
-        el.masterKeyInput.value = '••••••••••••••••';
-        el.authModal.classList.remove('hidden');
-      }
-
-      function hideAuthModal() {
-        el.authModal.classList.add('hidden');
-      }
-
-      function unlockControlCenter() {
-        localStorage.setItem(STORAGE_KEY_MASTER, MASTER_ADMIN_KEY);
-        hideAuthModal();
-        showToast('Chairman control center unlocked.', 'success');
-        appendWelcomeMessage();
+      function handleChairmanAnchorClick() {
+        chairmanClickCount += 1;
+        if (chairmanClickTimer) clearTimeout(chairmanClickTimer);
+        chairmanClickTimer = setTimeout(() => {
+          if (chairmanClickCount >= 2) {
+            if (confirm('Sign out and flush the God Mode session token?')) {
+              flushSessionToken();
+            }
+          } else if (getSessionToken()) {
+            showToast('Chairman session is active. Double-click to sign out.', 'info');
+          } else {
+            ensureSessionToken();
+          }
+          chairmanClickCount = 0;
+        }, 280);
       }
 
       function appendWelcomeMessage() {
@@ -821,7 +857,7 @@
           `**Enterprise Control Center online.**\n\n` +
           `Active agent: **${agent.name}**\n` +
           `Streaming endpoint: \`${CHAT_ENDPOINT}\`\n` +
-          `Master bypass credentials loaded. Dispatch a directive to begin.`
+          `Session credentials loaded from secure local storage. Dispatch a directive to begin.`
         );
       }
 
@@ -857,14 +893,7 @@
           }
         });
 
-        el.chairmanAnchor.addEventListener('click', showAuthModal);
-        el.authUnlockBtn.addEventListener('click', unlockControlCenter);
-        el.masterKeyInput.addEventListener('keydown', (event) => {
-          if (event.key === 'Enter') {
-            event.preventDefault();
-            unlockControlCenter();
-          }
-        });
+        el.chairmanAnchor.addEventListener('click', handleChairmanAnchorClick);
 
         el.kpiEmployeesCard.addEventListener('click', openWorkforceModal);
         el.kpiEmployeesCard.addEventListener('keydown', (event) => {
@@ -885,17 +914,12 @@
       }
 
       function boot() {
-        localStorage.setItem(STORAGE_KEY_MASTER, MASTER_ADMIN_KEY);
+        ensureSessionToken();
         renderAgentNav();
         selectAgent(state.activeAgentId, true);
         bindEvents();
         checkHealth();
-
-        if (!localStorage.getItem(STORAGE_KEY_MASTER)) {
-          showAuthModal();
-        } else {
-          appendWelcomeMessage();
-        }
+        appendWelcomeMessage();
       }
 
       boot();
