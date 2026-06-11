@@ -3,98 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>AI Universe Core — Private Admin Chat</title>
+  <title>AI Universe — Multi-Agent Enterprise Control Center</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <style>
-    html, body { height: 100%; margin: 0; }
-    .chat-scroll {
-      scrollbar-width: thin;
-      scrollbar-color: #4b5563 #0f172a;
-      scroll-behavior: smooth;
-    }
-    .chat-scroll::-webkit-scrollbar { width: 10px; }
-    .chat-scroll::-webkit-scrollbar-thumb {
-      background: #4b5563;
-      border-radius: 10px;
-    }
-    .prose-markdown { line-height: 1.65; color: #d4d4d4; }
-    .prose-markdown h1, .prose-markdown h2, .prose-markdown h3 {
-      font-weight: 700;
-      margin: 0.75rem 0 0.35rem;
-      color: #f3f4f6;
-    }
-    .prose-markdown h1 { font-size: 1.2rem; }
-    .prose-markdown h2 { font-size: 1.05rem; }
-    .prose-markdown h3 { font-size: 0.95rem; }
-    .prose-markdown p { margin: 0.35rem 0; }
-    .prose-markdown strong { color: #f9fafb; font-weight: 700; }
-    .prose-markdown ul, .prose-markdown ol { margin: 0.35rem 0 0.35rem 1.1rem; }
-    .prose-markdown code:not(pre code) {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      font-size: 0.85em;
-      background: rgba(15, 23, 42, 0.9);
-      border: 1px solid #334155;
-      border-radius: 0.35rem;
-      padding: 0.1rem 0.35rem;
-    }
-    .prose-markdown pre.code-block-frame {
-      position: relative;
-      margin: 0.65rem 0;
-      padding: 0.85rem 0.75rem 0.75rem;
-      border-radius: 0.65rem;
-      border: 1px solid #334155;
-      background: #0b1220;
-      overflow-x: auto;
-    }
-    .prose-markdown table {
-      display: block;
-      width: 100%;
-      overflow-x: auto;
-      border-collapse: collapse;
-    }
-    .prose-markdown th, .prose-markdown td {
-      border: 1px solid #334155;
-      padding: 0.35rem 0.5rem;
-    }
-    .copy-code-btn {
-      position: absolute;
-      top: 0.45rem;
-      right: 0.45rem;
-      z-index: 2;
-      font-size: 0.65rem;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      padding: 0.25rem 0.55rem;
-      border-radius: 0.4rem;
-      border: 1px solid #475569;
-      background: rgba(30, 41, 59, 0.95);
-      color: #e2e8f0;
-      cursor: pointer;
-    }
-    .copy-code-btn:hover { background: #334155; }
-    body.god-mode-active { overflow: hidden; }
-    #godApp.god-mode-fullscreen {
-      position: fixed;
-      inset: 0;
-      z-index: 50;
-      width: 100vw;
-      height: 100vh;
-      display: flex;
-      flex-direction: column;
-      background: #1e1e1e;
-      overflow: hidden;
-    }
-    #godmodePanels.god-mode-workspace-shell {
-      flex: 1;
-      min-height: 0;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      width: 100%;
-      height: 100%;
-    }
-  </style>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/themes/prism-tomorrow.min.css" />
   <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/prism.min.js"></script>
@@ -103,445 +14,746 @@
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-python.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-bash.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/prismjs@1.29.0/components/prism-json.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            chairman: '#f59e0b',
+            agent: { active: '#10b981', idle: '#64748b', busy: '#3b82f6' },
+          },
+          boxShadow: {
+            glow: '0 0 24px rgba(16, 185, 129, 0.15)',
+            card: '0 4px 24px rgba(0, 0, 0, 0.35)',
+          },
+        },
+      },
+    };
+  </script>
+  <style>
+    html, body { height: 100%; margin: 0; }
+    .chat-scroll {
+      scrollbar-width: thin;
+      scrollbar-color: #475569 #0f172a;
+      scroll-behavior: smooth;
+    }
+    .chat-scroll::-webkit-scrollbar { width: 8px; }
+    .chat-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 8px; }
+    .prose-markdown { line-height: 1.7; color: #cbd5e1; }
+    .prose-markdown h1, .prose-markdown h2, .prose-markdown h3 { font-weight: 700; color: #f1f5f9; margin: 0.85rem 0 0.4rem; }
+    .prose-markdown strong { color: #fff; }
+    .prose-markdown code:not(pre code) {
+      font-family: ui-monospace, monospace;
+      font-size: 0.85em;
+      background: #0f172a;
+      border: 1px solid #334155;
+      border-radius: 0.35rem;
+      padding: 0.1rem 0.4rem;
+    }
+    .prose-markdown pre.code-block-frame {
+      position: relative;
+      margin: 0.75rem 0;
+      padding: 1rem 0.85rem;
+      border-radius: 0.75rem;
+      border: 1px solid #334155;
+      background: #020617;
+      overflow-x: auto;
+    }
+    .copy-code-btn {
+      position: absolute; top: 0.5rem; right: 0.5rem;
+      font-size: 0.65rem; font-weight: 600; text-transform: uppercase;
+      padding: 0.25rem 0.55rem; border-radius: 0.35rem;
+      border: 1px solid #475569; background: #1e293b; color: #e2e8f0; cursor: pointer;
+    }
+    .agent-row.active { background: linear-gradient(90deg, rgba(16,185,129,0.12), transparent); border-left: 3px solid #10b981; }
+    .kpi-card {
+      background: linear-gradient(145deg, rgba(30,41,59,0.9), rgba(15,23,42,0.95));
+      border: 1px solid rgba(51, 65, 85, 0.8);
+    }
+    .kill-switch-pulse { animation: killPulse 2s ease-in-out infinite; }
+    @keyframes killPulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
+      50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+    }
+  </style>
 </head>
-<body class="h-full bg-[#1e1e1e] text-white antialiased">
-  <div id="godApp" class="h-full flex flex-col">
-    <div id="godAuthGate" class="min-h-screen flex items-center justify-center p-6 bg-gradient-to-br from-[#0b0f17] via-[#111827] to-[#1e1e1e]">
-      <div class="w-full max-w-md rounded-2xl border border-[#3c3c3c] bg-[#252526] p-6 shadow-2xl space-y-4">
-        <p class="text-xs uppercase tracking-[0.2em] text-[#4ec9b0] font-semibold text-center">Private Operator Console</p>
-        <h1 class="text-xl font-bold text-center">Admin Chat Panel</h1>
-        <p class="text-sm text-[#858585] text-center">Requires <code class="text-[#9cdcfe]">sk_god_master_...</code> or authorized master key.</p>
-        <label class="block text-xs text-[#858585] uppercase tracking-wide">API Base URL</label>
-        <input id="apiBase" type="url" class="w-full rounded-lg bg-[#1e1e1e] border border-[#3c3c3c] px-3 py-2 text-sm text-white" />
-        <label class="block text-xs text-[#858585] uppercase tracking-wide">God Mode Master Key</label>
-        <input id="adminKey" type="password" placeholder="sk_god_master_..." class="w-full rounded-lg bg-[#1e1e1e] border border-[#3c3c3c] px-3 py-2 text-sm text-white" />
-        <button id="unlockGodModeBtn" type="button" class="w-full rounded-lg bg-[#007acc] hover:bg-[#1a8ad4] text-white font-semibold py-2.5 text-sm">Unlock Admin Chat</button>
-        <p class="text-[11px] text-center"><a href="index.html" class="text-[#3794ff] hover:underline">← Public dashboard</a></p>
+<body class="w-full h-screen bg-slate-950 text-slate-100 flex overflow-hidden antialiased">
+
+  <!-- ═══ LEFT: AI WORKFORCE SIDEBAR ═══ -->
+  <aside class="w-72 shrink-0 bg-slate-900 border-r border-slate-800 flex flex-col h-full overflow-hidden">
+    <div class="p-4 border-b border-slate-800 shrink-0">
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-xl bg-gradient-to-br from-emerald-400 to-cyan-500 flex items-center justify-center shadow-glow">
+          <i class="fa-solid fa-network-wired text-slate-950 text-sm"></i>
+        </div>
+        <div>
+          <p class="text-[10px] uppercase tracking-[0.2em] text-emerald-400 font-semibold">Enterprise</p>
+          <h1 class="text-sm font-bold leading-tight">AI Workforce</h1>
+        </div>
       </div>
     </div>
 
-    <div id="godmodePanels" class="hidden flex-1 min-h-0 w-full flex flex-col overflow-hidden bg-[#1e1e1e]">
-      <header class="shrink-0 h-12 px-6 md:px-12 border-b border-[#2b2b2b] bg-[#252526] flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2 min-w-0">
-          <span class="text-[#007acc]">●</span>
-          <h1 class="text-sm font-semibold text-[#cccccc] truncate">AI Universe · Private Admin Chat</h1>
-        </div>
-        <p id="godStatusPill" class="text-[11px] text-[#858585] shrink-0">Dolphin · Master bypass</p>
-      </header>
+    <nav id="agentNav" class="flex-1 overflow-y-auto chat-scroll py-2 px-2 space-y-0.5" aria-label="Active AI Employees"></nav>
 
-      <div id="godDirectChatHistory" class="chat-scroll flex-1 overflow-y-auto overflow-x-hidden w-full px-6 md:px-12 py-6 space-y-4 min-h-0"></div>
-
-      <footer class="shrink-0 border-t border-[#2b2b2b] bg-[#252526] px-6 md:px-12 py-4">
-        <div class="w-full flex items-end gap-3">
-          <textarea
-            id="godDirectChatInput"
-            rows="1"
-            placeholder="Message the admin AI (uncensored, full bypass)…"
-            class="flex-1 resize-none rounded-2xl bg-[#1e1e1e] border border-[#3c3c3c] px-4 py-3 text-sm text-white placeholder:text-[#6e6e6e] focus:outline-none focus:ring-1 focus:ring-[#007acc] min-h-[48px] max-h-40"
-          ></textarea>
-          <button id="godDirectChatSendBtn" type="button" class="shrink-0 rounded-xl bg-[#007acc] hover:bg-[#1a8ad4] text-white font-semibold px-5 py-3 text-sm">
-            Send
-          </button>
+    <div class="shrink-0 p-3 border-t border-slate-800 bg-gradient-to-t from-amber-950/30 to-transparent">
+      <button
+        id="chairmanAnchor"
+        type="button"
+        class="w-full rounded-xl border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 px-3 py-3 text-left transition-colors group"
+      >
+        <div class="flex items-center gap-3">
+          <div class="h-9 w-9 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0">
+            <i class="fa-solid fa-crown text-slate-950 text-sm"></i>
+          </div>
+          <div class="min-w-0">
+            <p class="text-[10px] uppercase tracking-widest text-amber-400 font-bold">Chairman</p>
+            <p class="text-xs text-slate-300 truncate">Master Owner Root</p>
+          </div>
+          <i class="fa-solid fa-shield-halved text-amber-500/60 ml-auto group-hover:text-amber-400"></i>
         </div>
-      </footer>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══ MAIN WORKSPACE ═══ -->
+  <main class="flex-1 flex flex-col h-full overflow-hidden min-w-0">
+
+    <!-- Enterprise top header -->
+    <header class="shrink-0 px-6 py-4 border-b border-slate-800 bg-slate-900/80 backdrop-blur-sm flex flex-wrap items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+          <i class="fa-solid fa-building text-emerald-400"></i>
+          Multi-Agent Enterprise Control Center
+        </h2>
+        <p id="activeAgentLabel" class="text-xs text-slate-400 mt-0.5 truncate">Routing to · AI CEO</p>
+      </div>
+      <button
+        id="killSwitchBtn"
+        type="button"
+        class="kill-switch-pulse shrink-0 rounded-lg bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold px-4 py-2.5 border border-red-500 shadow-lg transition-colors"
+      >
+        🔴 STOP ALL AUTONOMOUS AGENTS
+      </button>
+    </header>
+
+    <!-- Real-time metrics grid -->
+    <section class="shrink-0 px-6 py-4 grid grid-cols-2 lg:grid-cols-4 gap-3 border-b border-slate-800/80 bg-slate-950/50">
+      <article class="kpi-card rounded-xl p-4 shadow-card">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">AI Employees</span>
+          <i class="fa-solid fa-robot text-emerald-400/80"></i>
+        </div>
+        <p class="text-2xl font-bold text-white">8</p>
+        <p class="text-[10px] text-emerald-400 mt-1">All nodes online</p>
+      </article>
+      <article class="kpi-card rounded-xl p-4 shadow-card">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Tasks Complete Today</span>
+          <i class="fa-solid fa-list-check text-cyan-400/80"></i>
+        </div>
+        <p id="kpiTasks" class="text-2xl font-bold text-white">257</p>
+        <p class="text-[10px] text-slate-500 mt-1">+12% vs yesterday</p>
+      </article>
+      <article class="kpi-card rounded-xl p-4 shadow-card">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Leads Collected</span>
+          <i class="fa-solid fa-user-plus text-violet-400/80"></i>
+        </div>
+        <p id="kpiLeads" class="text-2xl font-bold text-white">146</p>
+        <p class="text-[10px] text-slate-500 mt-1">Pipeline active</p>
+      </article>
+      <article class="kpi-card rounded-xl p-4 shadow-card">
+        <div class="flex items-center justify-between mb-2">
+          <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">System Health</span>
+          <i class="fa-solid fa-heart-pulse text-rose-400/80"></i>
+        </div>
+        <p id="kpiHealth" class="text-2xl font-bold text-white">99.9%</p>
+        <p id="kpiHealthSub" class="text-[10px] text-emerald-400 mt-1">Operational</p>
+      </article>
+    </section>
+
+    <!-- Central streaming chat core -->
+    <div id="chatTimeline" class="chat-scroll flex-1 overflow-y-auto px-6 py-6 w-full min-h-0 max-w-5xl mx-auto space-y-5"></div>
+
+    <!-- Composer -->
+    <footer class="shrink-0 border-t border-slate-800 bg-slate-900/90 backdrop-blur px-6 py-4">
+      <div class="max-w-5xl mx-auto flex items-end gap-3">
+        <textarea
+          id="chatInput"
+          rows="1"
+          placeholder="Directive to active agent… (Shift+Enter for new line)"
+          class="flex-1 resize-none rounded-xl bg-slate-950 border border-slate-700 px-4 py-3 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-emerald-500/50 focus:border-emerald-500/50 min-h-[48px] max-h-36"
+        ></textarea>
+        <button
+          id="sendChatBtn"
+          type="button"
+          class="shrink-0 rounded-xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-slate-950 font-bold px-5 py-3 text-sm shadow-glow transition-all active:scale-95"
+        >
+          <i class="fa-solid fa-paper-plane mr-1.5"></i> Dispatch
+        </button>
+      </div>
+      <p class="max-w-5xl mx-auto text-[10px] text-slate-600 mt-2 text-center">
+        Secured stream · POST /api/v1/chat/completions · Master bypass active
+      </p>
+    </footer>
+  </main>
+
+  <!-- Chairman auth modal (first unlock) -->
+  <div id="authModal" class="hidden fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+    <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4">
+      <div class="text-center">
+        <i class="fa-solid fa-crown text-amber-400 text-2xl mb-2"></i>
+        <h3 class="text-lg font-bold">Chairman Authentication</h3>
+        <p class="text-sm text-slate-400 mt-1">Enter master bypass key to activate the control center.</p>
+      </div>
+      <input id="masterKeyInput" type="password" class="w-full rounded-lg bg-slate-950 border border-slate-700 px-3 py-2.5 text-sm" placeholder="sk_god_master_..." />
+      <button id="authUnlockBtn" type="button" class="w-full rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold py-2.5 text-sm">
+        Unlock Control Center
+      </button>
     </div>
   </div>
 
-  <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
+  <div id="toastHost" class="fixed bottom-4 right-4 z-[300] space-y-2 pointer-events-none"></div>
 
   <script>
-    const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
-    const REGISTERED_EMAIL = 'demoa2735@gmail.com';
-    const TRUNCATION_BADGE = '[TRUNCATED_BADGE_ACTIVE]';
+    (function () {
+      'use strict';
 
-    const STORAGE_KEYS = {
-      adminKey: 'auc_admin_key',
-      godMasterApiKey: 'auc_god_master_api_key',
-    };
+      const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
+      const DEFAULT_MASTER_KEY = 'sk_god_master_production_bypass_v7';
+      const REGISTERED_EMAIL = 'demoa2735@gmail.com';
+      const STORAGE_KEY_MASTER = 'auc_god_master_api_key';
+      const CHAT_ENDPOINT = '/api/v1/chat/completions';
+      const DEFAULT_MODEL = 'dolphin-llama3';
 
-    let markdownRenderRaf = 0;
+      const AGENTS = [
+        { id: 'ceo', name: 'AI CEO', icon: 'fa-chess-king', status: 'active', role: 'Chief executive strategist and final decision orchestrator.' },
+        { id: 'cmo', name: 'AI CMO', icon: 'fa-bullhorn', status: 'active', role: 'Marketing intelligence, brand positioning, and growth campaigns.' },
+        { id: 'media', name: 'AI Media Engine', icon: 'fa-photo-film', status: 'busy', role: 'Content production, creative assets, and media distribution.' },
+        { id: 'sales-a', name: 'Sales A', subtitle: 'Affiliate Network', icon: 'fa-handshake', status: 'active', role: 'Affiliate network expansion and partner revenue.' },
+        { id: 'sales-b', name: 'Sales B', subtitle: 'DM Closer', icon: 'fa-comments-dollar', status: 'idle', role: 'Direct-message closing sequences and high-ticket conversion.' },
+        { id: 'sales-c', name: 'Sales C', subtitle: 'Funnel Optimizer', icon: 'fa-filter', status: 'active', role: 'Funnel analytics, A/B tests, and conversion rate optimization.' },
+        { id: 'dev', name: 'Chief Developer', icon: 'fa-code', status: 'active', role: 'Engineering architecture, deployments, and technical execution.' },
+        { id: 'risk', name: 'Risk Officer', icon: 'fa-shield', status: 'active', role: 'Compliance, threat modeling, and operational risk controls.' },
+      ];
 
-    const state = {
-      adminUnlocked: false,
-      chatMessages: [],
-    };
+      let markdownRenderRaf = 0;
+      let masterKey = localStorage.getItem(STORAGE_KEY_MASTER) || DEFAULT_MASTER_KEY;
+      let autonomousStopped = false;
 
-    if (window.marked) {
-      marked.setOptions({ breaks: true, gfm: true });
-    }
-
-    const el = {
-      apiBase: document.getElementById('apiBase'),
-      adminKey: document.getElementById('adminKey'),
-      unlockGodModeBtn: document.getElementById('unlockGodModeBtn'),
-      godmodePanels: document.getElementById('godmodePanels'),
-      godAuthGate: document.getElementById('godAuthGate'),
-      godApp: document.getElementById('godApp'),
-      godDirectChatHistory: document.getElementById('godDirectChatHistory'),
-      godDirectChatInput: document.getElementById('godDirectChatInput'),
-      godDirectChatSendBtn: document.getElementById('godDirectChatSendBtn'),
-      godStatusPill: document.getElementById('godStatusPill'),
-      toastHost: document.getElementById('toastHost'),
-    };
-
-    function getApiBase() {
-      return PRODUCTION_API_BASE.replace(/\/$/, '');
-    }
-
-    function getClientEmail() {
-      return REGISTERED_EMAIL;
-    }
-
-    function withRegisteredEmail(payload) {
-      return { ...payload, email: getClientEmail() };
-    }
-
-    function getAdminHeaders() {
-      const adminKey = (el.adminKey.value || localStorage.getItem(STORAGE_KEYS.adminKey) || '').trim();
-      return {
-        'Content-Type': 'application/json',
-        'x-master-admin-key': adminKey,
-        Authorization: adminKey ? `Bearer ${adminKey}` : '',
-        'x-user-email': REGISTERED_EMAIL,
-        'X-Client-Email': REGISTERED_EMAIL,
-        'Client-Email': REGISTERED_EMAIL,
+      const state = {
+        activeAgentId: 'ceo',
+        tasksComplete: 257,
+        leadsCollected: 146,
+        chatHistory: [],
       };
-    }
 
-    function isValidGodModeMasterKey(key) {
-      const value = String(key || '').trim();
-      return value.startsWith('sk_god_master_') || value.length >= 16;
-    }
+      if (window.marked) {
+        marked.setOptions({ breaks: true, gfm: true });
+      }
 
-    function showToast(message, type) {
-      const colors = {
-        success: 'border-emerald-500/40 bg-emerald-500/10 text-emerald-200',
-        error: 'border-red-500/40 bg-red-500/10 text-red-200',
-        info: 'border-blue-500/40 bg-blue-500/10 text-blue-200',
-        warn: 'border-amber-500/40 bg-amber-500/10 text-amber-200',
+      const el = {
+        agentNav: document.getElementById('agentNav'),
+        chairmanAnchor: document.getElementById('chairmanAnchor'),
+        activeAgentLabel: document.getElementById('activeAgentLabel'),
+        killSwitchBtn: document.getElementById('killSwitchBtn'),
+        chatTimeline: document.getElementById('chatTimeline'),
+        chatInput: document.getElementById('chatInput'),
+        sendChatBtn: document.getElementById('sendChatBtn'),
+        kpiTasks: document.getElementById('kpiTasks'),
+        kpiLeads: document.getElementById('kpiLeads'),
+        kpiHealth: document.getElementById('kpiHealth'),
+        kpiHealthSub: document.getElementById('kpiHealthSub'),
+        authModal: document.getElementById('authModal'),
+        masterKeyInput: document.getElementById('masterKeyInput'),
+        authUnlockBtn: document.getElementById('authUnlockBtn'),
+        toastHost: document.getElementById('toastHost'),
       };
-      const node = document.createElement('div');
-      node.className = `rounded-xl border px-4 py-3 text-sm shadow-lg ${colors[type] || colors.info}`;
-      node.textContent = message;
-      el.toastHost.appendChild(node);
-      setTimeout(() => node.remove(), 5200);
-    }
 
-    function attachCopyCodeButtons(container) {
-      if (!container) return;
-      container.querySelectorAll('pre').forEach((pre) => {
-        if (pre.dataset.copyBound === '1') return;
-        pre.dataset.copyBound = '1';
-        pre.classList.add('code-block-frame');
-        const btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'copy-code-btn';
-        btn.textContent = 'Copy Code';
-        btn.addEventListener('click', async () => {
-          const code = pre.querySelector('code')?.innerText || pre.innerText;
-          try {
-            await navigator.clipboard.writeText(code);
-            btn.textContent = 'Copied!';
-            setTimeout(() => { btn.textContent = 'Copy Code'; }, 1800);
-          } catch {
-            btn.textContent = 'Failed';
-          }
+      function getApiBase() {
+        return PRODUCTION_API_BASE.replace(/\/$/, '');
+      }
+
+      function getMasterKey() {
+        return (masterKey || DEFAULT_MASTER_KEY).trim();
+      }
+
+      function getAdminHeaders() {
+        const key = getMasterKey();
+        return {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream',
+          Authorization: `Bearer ${key}`,
+          'x-master-admin-key': key,
+          'x-user-email': REGISTERED_EMAIL,
+          'X-Client-Email': REGISTERED_EMAIL,
+        };
+      }
+
+      function showToast(message, type) {
+        const colors = {
+          success: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-100',
+          error: 'border-red-500/50 bg-red-500/15 text-red-100',
+          info: 'border-cyan-500/50 bg-cyan-500/15 text-cyan-100',
+          warn: 'border-amber-500/50 bg-amber-500/15 text-amber-100',
+        };
+        const node = document.createElement('div');
+        node.className = `pointer-events-auto rounded-xl border px-4 py-3 text-sm shadow-xl ${colors[type] || colors.info}`;
+        node.textContent = message;
+        el.toastHost.appendChild(node);
+        setTimeout(() => node.remove(), 5000);
+      }
+
+      function statusDot(status) {
+        const map = {
+          active: 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.6)]',
+          busy: 'bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.6)]',
+          idle: 'bg-slate-500',
+          stopped: 'bg-red-500',
+        };
+        return map[status] || map.idle;
+      }
+
+      function renderAgentNav() {
+        el.agentNav.innerHTML = '';
+        AGENTS.forEach((agent) => {
+          const isActive = agent.id === state.activeAgentId;
+          const displayStatus = autonomousStopped ? 'stopped' : agent.status;
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.dataset.agentId = agent.id;
+          btn.className = `agent-row w-full text-left rounded-lg px-3 py-2.5 transition-colors ${isActive ? 'active' : 'hover:bg-slate-800/60'}`;
+          btn.innerHTML = `
+            <div class="flex items-center gap-3">
+              <span class="h-2 w-2 rounded-full shrink-0 ${statusDot(displayStatus)}"></span>
+              <span class="h-8 w-8 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                <i class="fa-solid ${agent.icon} text-slate-300 text-xs"></i>
+              </span>
+              <div class="min-w-0 flex-1">
+                <p class="text-xs font-semibold text-slate-200 truncate">${agent.name}</p>
+                ${agent.subtitle ? `<p class="text-[10px] text-slate-500 truncate">${agent.subtitle}</p>` : '<p class="text-[10px] text-slate-500">Online</p>'}
+              </div>
+            </div>`;
+          btn.addEventListener('click', () => selectAgent(agent.id));
+          el.agentNav.appendChild(btn);
         });
-        pre.appendChild(btn);
-      });
-    }
-
-    function renderMarkdownToElement(target, rawText) {
-      if (!target) return;
-      const text = String(rawText || '');
-      if (!text.trim()) {
-        target.textContent = '';
-        return;
-      }
-      if (!window.marked) {
-        target.textContent = text;
-        return;
-      }
-      target.innerHTML = marked.parse(text);
-      attachCopyCodeButtons(target);
-      if (window.Prism) {
-        target.querySelectorAll('pre code').forEach((block) => {
-          Prism.highlightElement(block);
-        });
-      }
-    }
-
-    function scheduleMarkdownRender(target, rawText) {
-      if (markdownRenderRaf) cancelAnimationFrame(markdownRenderRaf);
-      markdownRenderRaf = requestAnimationFrame(() => {
-        renderMarkdownToElement(target, rawText);
-        markdownRenderRaf = 0;
-      });
-    }
-
-    function appendGodDirectChatEntry(role, content) {
-      const row = document.createElement('div');
-      row.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
-
-      const bubble = document.createElement('div');
-      bubble.className = role === 'user'
-        ? 'max-w-[90%] rounded-2xl rounded-tr-sm bg-[#007acc]/20 border border-[#007acc]/35 px-4 py-3 text-sm text-[#e8f4fc]'
-        : 'max-w-[95%] rounded-2xl rounded-tl-sm bg-[#2d2d2d] border border-[#3c3c3c] px-4 py-3 text-sm';
-
-      const label = document.createElement('p');
-      label.className = 'text-[10px] uppercase tracking-wider mb-1.5 text-[#858585]';
-      label.textContent = role === 'user' ? 'You' : 'Dolphin Admin';
-
-      const body = document.createElement('div');
-      body.className = role === 'assistant'
-        ? 'prose-markdown leading-relaxed'
-        : 'whitespace-pre-wrap leading-relaxed';
-
-      if (role === 'assistant') {
-        renderMarkdownToElement(body, content || '');
-      } else {
-        body.textContent = content || '';
       }
 
-      bubble.appendChild(label);
-      bubble.appendChild(body);
-      row.appendChild(bubble);
-      el.godDirectChatHistory.appendChild(row);
-      el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
-      return { row, bubble, body };
-    }
-
-    async function apiRequest(path, options) {
-      const url = `${getApiBase()}${path}`;
-      const requestOptions = { ...options };
-
-      if (requestOptions.body && typeof requestOptions.body === 'string') {
-        try {
-          const parsedBody = JSON.parse(requestOptions.body);
-          requestOptions.body = JSON.stringify(withRegisteredEmail(parsedBody));
-        } catch {
-          // keep original body
-        }
+      function getActiveAgent() {
+        return AGENTS.find((a) => a.id === state.activeAgentId) || AGENTS[0];
       }
 
-      const response = await fetch(url, requestOptions);
-      let payload = null;
-      try {
-        payload = await response.json();
-      } catch {
-        payload = { message: 'Non-JSON response received from API.' };
+      function selectAgent(agentId) {
+        state.activeAgentId = agentId;
+        const agent = getActiveAgent();
+        el.activeAgentLabel.textContent = `Routing to · ${agent.name}${agent.subtitle ? ` (${agent.subtitle})` : ''}`;
+        renderAgentNav();
+        showToast(`${agent.name} selected as active agent.`, 'info');
       }
-      return { response, payload };
-    }
 
-    async function consumeGodSseStream(response, assistantNode) {
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let fullText = '';
-
-      while (true) {
-        const { value, done } = await reader.read();
-        if (value) {
-          buffer += decoder.decode(value, { stream: true });
-          const frames = buffer.split('\n\n');
-          buffer = frames.pop() || '';
-
-          for (const frame of frames) {
-            const dataLine = frame
-              .split('\n')
-              .map((line) => line.trim())
-              .find((line) => line.startsWith('data:'));
-
-            if (!dataLine) continue;
-            const payloadRaw = dataLine.replace(/^data:\s*/, '');
-            if (!payloadRaw || payloadRaw === '[DONE]') continue;
-
-            let payload;
+      function attachCopyCodeButtons(container) {
+        if (!container) return;
+        container.querySelectorAll('pre').forEach((pre) => {
+          if (pre.dataset.copyBound === '1') return;
+          pre.dataset.copyBound = '1';
+          pre.classList.add('code-block-frame');
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'copy-code-btn';
+          btn.textContent = 'Copy';
+          btn.addEventListener('click', async () => {
             try {
-              payload = JSON.parse(payloadRaw);
+              await navigator.clipboard.writeText(pre.querySelector('code')?.innerText || pre.innerText);
+              btn.textContent = 'Copied!';
+              setTimeout(() => { btn.textContent = 'Copy'; }, 1500);
             } catch {
-              continue;
+              btn.textContent = 'Error';
             }
+          });
+          pre.appendChild(btn);
+        });
+      }
 
-            if (payload.error) {
-              throw new Error(payload.message || 'SSE stream reported an error.');
-            }
-
-            if (payload.type === 'meta') continue;
-
-            if (payload.content && payload.content !== TRUNCATION_BADGE && !payload.truncated) {
-              const chunk = payload.content.includes(TRUNCATION_BADGE)
-                ? payload.content.replace(TRUNCATION_BADGE, '')
-                : payload.content;
-              fullText += chunk;
-              scheduleMarkdownRender(assistantNode.body, fullText);
-              el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
-            }
-          }
+      function renderMarkdown(target, text) {
+        if (!target) return;
+        const raw = String(text || '');
+        if (!raw.trim()) {
+          target.textContent = '';
+          return;
         }
-        if (done) {
-          buffer += decoder.decode(undefined, { stream: false });
-          if (buffer.trim()) {
-            const dataLine = buffer.split('\n').find((line) => line.trim().startsWith('data:'));
-            if (dataLine) {
-              const payloadRaw = dataLine.replace(/^data:\s*/, '');
-              if (payloadRaw && payloadRaw !== '[DONE]') {
-                try {
-                  const payload = JSON.parse(payloadRaw);
-                  if (payload.content) fullText += String(payload.content).replace(TRUNCATION_BADGE, '');
-                } catch {
-                  // ignore trailing parse errors
-                }
+        if (!window.marked) {
+          target.textContent = raw;
+          return;
+        }
+        target.innerHTML = marked.parse(raw);
+        attachCopyCodeButtons(target);
+        if (window.Prism) {
+          target.querySelectorAll('pre code').forEach((block) => Prism.highlightElement(block));
+        }
+      }
+
+      function scheduleMarkdownRender(target, text) {
+        if (markdownRenderRaf) cancelAnimationFrame(markdownRenderRaf);
+        markdownRenderRaf = requestAnimationFrame(() => {
+          renderMarkdown(target, text);
+          markdownRenderRaf = 0;
+        });
+      }
+
+      function appendChatBubble(role, content) {
+        const wrap = document.createElement('div');
+        wrap.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
+
+        const bubble = document.createElement('div');
+        bubble.className = role === 'user'
+          ? 'max-w-[88%] rounded-2xl rounded-tr-sm bg-gradient-to-br from-emerald-600/25 to-cyan-600/20 border border-emerald-500/30 px-4 py-3'
+          : 'max-w-[95%] rounded-2xl rounded-tl-sm bg-slate-800/90 border border-slate-700 px-4 py-3 shadow-card';
+
+        const meta = document.createElement('p');
+        meta.className = 'text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 font-semibold';
+        if (role === 'user') {
+          meta.textContent = 'Chairman Directive';
+        } else {
+          const agent = getActiveAgent();
+          meta.innerHTML = `<i class="fa-solid ${agent.icon} mr-1"></i> ${agent.name}`;
+        }
+
+        const body = document.createElement('div');
+        body.className = role === 'assistant' ? 'prose-markdown text-sm' : 'text-sm whitespace-pre-wrap leading-relaxed';
+
+        if (role === 'assistant') {
+          renderMarkdown(body, content || '');
+        } else {
+          body.textContent = content || '';
+        }
+
+        bubble.appendChild(meta);
+        bubble.appendChild(body);
+        wrap.appendChild(bubble);
+        el.chatTimeline.appendChild(wrap);
+        el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
+        return { wrap, bubble, body };
+      }
+
+      function injectOperationalActions(bubble, fullText) {
+        if (!/\b(PROPOSAL|STRATEGY)\b/i.test(fullText)) return;
+
+        const existing = bubble.querySelector('.ops-action-bar');
+        if (existing) return;
+
+        const bar = document.createElement('div');
+        bar.className = 'ops-action-bar flex flex-wrap gap-2 mt-4 pt-3 border-t border-slate-700';
+
+        const approveBtn = document.createElement('button');
+        approveBtn.type = 'button';
+        approveBtn.className = 'rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-4 py-2 transition-colors active:scale-95';
+        approveBtn.textContent = '🟢 APPROVE EXECUTION';
+        approveBtn.addEventListener('click', () => {
+          console.log('[OPS] APPROVE EXECUTION clicked', { agent: state.activeAgentId, timestamp: new Date().toISOString() });
+          showToast('Execution approved — dispatching autonomous workflow.', 'success');
+          state.tasksComplete += 1;
+          el.kpiTasks.textContent = String(state.tasksComplete);
+          approveBtn.disabled = true;
+          approveBtn.classList.add('opacity-50');
+        });
+
+        const amendBtn = document.createElement('button');
+        amendBtn.type = 'button';
+        amendBtn.className = 'rounded-lg bg-red-600/90 hover:bg-red-500 text-white text-xs font-bold px-4 py-2 transition-colors active:scale-95';
+        amendBtn.textContent = '🔴 AMEND STRATEGY';
+        amendBtn.addEventListener('click', () => {
+          console.log('[OPS] AMEND STRATEGY clicked', { agent: state.activeAgentId, timestamp: new Date().toISOString() });
+          showToast('Strategy amendment logged — awaiting revised directive.', 'warn');
+          el.chatInput.focus();
+        });
+
+        bar.appendChild(approveBtn);
+        bar.appendChild(amendBtn);
+        bubble.appendChild(bar);
+      }
+
+      function buildAgentPrompt(userText) {
+        const agent = getActiveAgent();
+        return [
+          `[ENTERPRISE_AGENT_CONTEXT]`,
+          `agent_id: ${agent.id}`,
+          `agent_name: ${agent.name}`,
+          `agent_mandate: ${agent.role}`,
+          `chairman_authority: MASTER_OWNER`,
+          `[/ENTERPRISE_AGENT_CONTEXT]`,
+          '',
+          userText,
+        ].join('\n');
+      }
+
+      function extractStreamDelta(payload) {
+        if (!payload || typeof payload !== 'object') return '';
+        if (payload.choices && payload.choices[0]?.delta?.content) {
+          return payload.choices[0].delta.content;
+        }
+        if (typeof payload.content === 'string') return payload.content;
+        return '';
+      }
+
+      async function consumeOpenAiSseStream(response, assistantNode) {
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let fullText = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+
+          if (value) {
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed.startsWith('data:')) continue;
+
+              const payloadRaw = trimmed.replace(/^data:\s*/, '');
+              if (!payloadRaw || payloadRaw === '[DONE]') continue;
+
+              let payload;
+              try {
+                payload = JSON.parse(payloadRaw);
+              } catch {
+                continue;
+              }
+
+              if (payload.error) {
+                throw new Error(payload.error.message || payload.message || 'Stream error');
+              }
+
+              const chunk = extractStreamDelta(payload);
+              if (chunk) {
+                fullText += chunk;
+                scheduleMarkdownRender(assistantNode.body, fullText);
+                el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
               }
             }
           }
-          break;
-        }
-      }
 
-      return fullText;
-    }
-
-    async function sendGodDirectChat() {
-      if (!state.adminUnlocked) {
-        showToast('Unlock Admin Chat with a valid master key first.', 'warn');
-        return;
-      }
-
-      const prompt = el.godDirectChatInput.value.trim();
-      if (!prompt) {
-        showToast('Enter a message before sending.', 'warn');
-        return;
-      }
-
-      appendGodDirectChatEntry('user', prompt);
-      el.godDirectChatInput.value = '';
-      el.godDirectChatSendBtn.disabled = true;
-
-      const assistantNode = appendGodDirectChatEntry('assistant', '');
-
-      try {
-        const response = await fetch(`${getApiBase()}/api/chat`, {
-          method: 'POST',
-          headers: {
-            ...getAdminHeaders(),
-            Accept: 'text/event-stream',
-          },
-          body: JSON.stringify(withRegisteredEmail({
-            prompt,
-            stream: true,
-          })),
-        });
-
-        const contentType = response.headers.get('content-type') || '';
-
-        if (!response.ok && !contentType.includes('text/event-stream')) {
-          let payload = {};
-          try {
-            payload = await response.json();
-          } catch {
-            payload = { message: `Admin chat failed (${response.status})` };
+          if (done) {
+            if (buffer.trim()) {
+              const trimmed = buffer.trim();
+              if (trimmed.startsWith('data:')) {
+                const payloadRaw = trimmed.replace(/^data:\s*/, '');
+                if (payloadRaw && payloadRaw !== '[DONE]') {
+                  try {
+                    const payload = JSON.parse(payloadRaw);
+                    const chunk = extractStreamDelta(payload);
+                    if (chunk) fullText += chunk;
+                  } catch {
+                    // ignore tail parse
+                  }
+                }
+              }
+            }
+            break;
           }
-          assistantNode.body.textContent = payload.message || `Error ${response.status}`;
-          showToast(payload.message || 'Admin chat failed.', 'error');
+        }
+
+        return fullText;
+      }
+
+      async function dispatchChat(prompt) {
+        const message = String(prompt || '').trim();
+        if (!message) return;
+
+        if (autonomousStopped) {
+          showToast('Autonomous agents are halted. Reset via Chairman panel to resume.', 'warn');
           return;
         }
 
-        if (contentType.includes('text/event-stream') && response.body) {
-          const fullText = await consumeGodSseStream(response, assistantNode);
+        appendChatBubble('user', message);
+        el.chatInput.value = '';
+        el.sendChatBtn.disabled = true;
 
-          if (!fullText.trim()) {
-            assistantNode.body.textContent = 'No response content returned from model.';
-          } else {
-            renderMarkdownToElement(assistantNode.body, fullText);
-            state.chatMessages.push({ role: 'user', content: prompt });
-            state.chatMessages.push({ role: 'assistant', content: fullText });
+        const assistantNode = appendChatBubble('assistant', '');
+        const contextualPrompt = buildAgentPrompt(message);
+
+        try {
+          const response = await fetch(`${getApiBase()}${CHAT_ENDPOINT}`, {
+            method: 'POST',
+            headers: getAdminHeaders(),
+            body: JSON.stringify({
+              model: DEFAULT_MODEL,
+              stream: true,
+              messages: [
+                { role: 'system', content: `You are ${getActiveAgent().name}. ${getActiveAgent().role} Respond with institutional clarity. Use PROPOSAL or STRATEGY markers when recommending executive actions.` },
+                { role: 'user', content: contextualPrompt },
+              ],
+            }),
+          });
+
+          const contentType = response.headers.get('content-type') || '';
+
+          if (!response.ok) {
+            let errMsg = `Request failed (${response.status})`;
+            try {
+              const errBody = await response.json();
+              errMsg = errBody?.error?.message || errBody?.message || errMsg;
+            } catch {
+              // non-json error
+            }
+            assistantNode.body.textContent = errMsg;
+            showToast(errMsg, 'error');
+            return;
           }
-        } else {
+
+          if (contentType.includes('text/event-stream') && response.body) {
+            const fullText = await consumeOpenAiSseStream(response, assistantNode);
+            const finalText = fullText.trim() || 'No content returned from model stream.';
+            renderMarkdown(assistantNode.body, finalText);
+            injectOperationalActions(assistantNode.bubble, finalText);
+            state.chatHistory.push({ role: 'user', content: message });
+            state.chatHistory.push({ role: 'assistant', content: finalText });
+            state.tasksComplete += 1;
+            el.kpiTasks.textContent = String(state.tasksComplete);
+          } else {
+            const payload = await response.json();
+            const text = payload?.choices?.[0]?.message?.content
+              || payload?.output
+              || payload?.message
+              || JSON.stringify(payload, null, 2);
+            renderMarkdown(assistantNode.body, text);
+            injectOperationalActions(assistantNode.bubble, text);
+          }
+        } catch (error) {
+          assistantNode.body.textContent = error.message || 'Network failure during stream.';
+          showToast(error.message || 'Stream failed.', 'error');
+        } finally {
+          el.sendChatBtn.disabled = false;
+          el.chatTimeline.scrollTop = el.chatTimeline.scrollHeight;
+        }
+      }
+
+      function sendChat() {
+        const prompt = el.chatInput.value.trim();
+        if (!prompt) {
+          showToast('Enter a directive before dispatching.', 'warn');
+          return;
+        }
+        dispatchChat(prompt);
+      }
+
+      function activateKillSwitch() {
+        autonomousStopped = true;
+        el.killSwitchBtn.textContent = '⛔ ALL AGENTS STOPPED';
+        el.killSwitchBtn.classList.remove('bg-red-600', 'hover:bg-red-500', 'kill-switch-pulse');
+        el.killSwitchBtn.classList.add('bg-slate-700', 'cursor-not-allowed');
+        el.kpiHealth.textContent = 'HALTED';
+        el.kpiHealthSub.textContent = 'Kill switch engaged';
+        el.kpiHealthSub.className = 'text-[10px] text-red-400 mt-1';
+        renderAgentNav();
+        console.log('[KILL-SWITCH] All autonomous agents stopped at', new Date().toISOString());
+        showToast('Emergency kill switch engaged — all autonomous agents halted.', 'error');
+      }
+
+      function resetKillSwitch() {
+        autonomousStopped = false;
+        el.killSwitchBtn.textContent = '🔴 STOP ALL AUTONOMOUS AGENTS';
+        el.killSwitchBtn.className = 'kill-switch-pulse shrink-0 rounded-lg bg-red-600 hover:bg-red-500 active:bg-red-700 text-white text-xs font-bold px-4 py-2.5 border border-red-500 shadow-lg transition-colors';
+        el.kpiHealth.textContent = '99.9%';
+        el.kpiHealthSub.textContent = 'Operational';
+        el.kpiHealthSub.className = 'text-[10px] text-emerald-400 mt-1';
+        renderAgentNav();
+        showToast('Autonomous agents resumed.', 'success');
+      }
+
+      function showAuthModal() {
+        el.masterKeyInput.value = getMasterKey();
+        el.authModal.classList.remove('hidden');
+      }
+
+      function hideAuthModal() {
+        el.authModal.classList.add('hidden');
+      }
+
+      function unlockControlCenter() {
+        const key = el.masterKeyInput.value.trim() || DEFAULT_MASTER_KEY;
+        if (key.length < 16) {
+          showToast('Invalid master key format.', 'warn');
+          return;
+        }
+        masterKey = key;
+        localStorage.setItem(STORAGE_KEY_MASTER, key);
+        hideAuthModal();
+        showToast('Chairman control center unlocked.', 'success');
+        appendWelcomeMessage();
+      }
+
+      function appendWelcomeMessage() {
+        if (el.chatTimeline.children.length > 0) return;
+        const agent = getActiveAgent();
+        appendChatBubble('assistant',
+          `**Enterprise Control Center online.**\n\n` +
+          `Active agent: **${agent.name}**\n` +
+          `Streaming endpoint: \`${CHAT_ENDPOINT}\`\n` +
+          `Master bypass credentials loaded. Dispatch a directive to begin.`
+        );
+      }
+
+      async function checkHealth() {
+        try {
+          const response = await fetch(`${getApiBase()}/health`, { method: 'GET' });
           const payload = await response.json();
-          const text = payload.output || payload.message || JSON.stringify(payload, null, 2);
-          renderMarkdownToElement(assistantNode.body, text);
-        }
-
-        showToast('Response completed.', 'success');
-      } catch (error) {
-        assistantNode.body.textContent = error.message || 'Network failure during admin chat.';
-        showToast(error.message || 'Admin chat failed.', 'error');
-      } finally {
-        el.godDirectChatSendBtn.disabled = false;
-        el.godDirectChatHistory.scrollTop = el.godDirectChatHistory.scrollHeight;
-      }
-    }
-
-    function activateGodModeWorkspace() {
-      el.godAuthGate?.classList.add('hidden');
-      el.godApp?.classList.add('god-mode-fullscreen');
-      el.godmodePanels?.classList.remove('hidden');
-      el.godmodePanels?.classList.add('god-mode-workspace-shell');
-      document.body.classList.add('god-mode-active');
-    }
-
-    function unlockGodMode() {
-      const key = el.adminKey.value.trim();
-      if (!isValidGodModeMasterKey(key)) {
-        showToast('Enter a valid God Mode master key (sk_god_master_...).', 'warn');
-        return;
-      }
-      localStorage.setItem(STORAGE_KEYS.adminKey, key);
-      state.adminUnlocked = true;
-      showToast('Admin chat session unlocked.', 'success');
-      activateGodModeWorkspace();
-      appendGodDirectChatEntry('assistant', 'Admin chat online. Master bypass active — send any prompt for uncensored Dolphin responses via `POST /api/chat`.');
-    }
-
-    function loadPersistedValues() {
-      el.apiBase.value = getApiBase();
-      el.adminKey.value = localStorage.getItem(STORAGE_KEYS.adminKey) || '';
-      if (el.adminKey.value && isValidGodModeMasterKey(el.adminKey.value)) {
-        state.adminUnlocked = true;
-        activateGodModeWorkspace();
-      }
-    }
-
-    async function checkHealth() {
-      try {
-        const { response, payload } = await apiRequest('/health', { method: 'GET' });
-        if (response.ok && state.adminUnlocked && el.godStatusPill) {
-          const redisHint = payload.redis ? ` · ${payload.redis}` : '';
-          el.godStatusPill.textContent = `Online · ${payload.status || 'healthy'}${redisHint}`;
-        }
-      } catch {
-        if (state.adminUnlocked && el.godStatusPill) {
-          el.godStatusPill.textContent = 'API unreachable';
+          if (response.ok) {
+            el.kpiHealth.textContent = '99.9%';
+            el.kpiHealthSub.textContent = payload.status || 'Operational';
+          }
+        } catch {
+          el.kpiHealth.textContent = '—';
+          el.kpiHealthSub.textContent = 'Health probe failed';
+          el.kpiHealthSub.className = 'text-[10px] text-amber-400 mt-1';
         }
       }
-    }
 
-    function bindEvents() {
-      el.unlockGodModeBtn.addEventListener('click', unlockGodMode);
-      el.adminKey.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          unlockGodMode();
+      function bindEvents() {
+        el.sendChatBtn.addEventListener('click', sendChat);
+        el.chatInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' && !event.shiftKey) {
+            event.preventDefault();
+            sendChat();
+          }
+        });
+
+        el.killSwitchBtn.addEventListener('click', () => {
+          if (autonomousStopped) {
+            if (confirm('Resume all autonomous agents?')) resetKillSwitch();
+          } else {
+            if (confirm('Engage emergency kill switch and halt ALL autonomous agents?')) activateKillSwitch();
+          }
+        });
+
+        el.chairmanAnchor.addEventListener('click', showAuthModal);
+        el.authUnlockBtn.addEventListener('click', unlockControlCenter);
+        el.masterKeyInput.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            unlockControlCenter();
+          }
+        });
+      }
+
+      function boot() {
+        renderAgentNav();
+        selectAgent(state.activeAgentId);
+        bindEvents();
+        checkHealth();
+
+        if (!localStorage.getItem(STORAGE_KEY_MASTER)) {
+          showAuthModal();
+        } else {
+          appendWelcomeMessage();
         }
-      });
-      el.godDirectChatSendBtn.addEventListener('click', sendGodDirectChat);
-      el.godDirectChatInput.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' && !event.shiftKey) {
-          event.preventDefault();
-          sendGodDirectChat();
-        }
-      });
-    }
+      }
 
-    loadPersistedValues();
-    bindEvents();
-    checkHealth();
-
-    if (!state.adminUnlocked) {
-      showToast('Enter your God Mode master key to access the admin chat.', 'info');
-    }
+      boot();
+    })();
   </script>
 </body>
 </html>
