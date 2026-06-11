@@ -211,7 +211,7 @@
         </button>
       </div>
       <p class="max-w-5xl mx-auto text-[10px] text-slate-600 mt-2 text-center">
-        Secured stream · POST /api/v1/chat/completions · Dynamic session auth
+        Secured stream · POST /api/v1/swarm/orchestrate · Dynamic session auth
       </p>
     </footer>
   </main>
@@ -243,11 +243,9 @@
       'use strict';
 
       const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
-      const REGISTERED_EMAIL = 'demoa2735@gmail.com';
       const SESSION_TOKEN_KEY = 'god_master_session_token';
       const LEGACY_TOKEN_KEYS = ['auc_god_master_api_key', 'auc_admin_key'];
-      const CHAT_ENDPOINT = '/api/v1/chat/completions';
-      const DEFAULT_MODEL = 'dolphin-llama3';
+      const CHAT_ENDPOINT = '/api/v1/swarm/orchestrate';
       const SESSION_PROMPT_MSG = 'Enter Master Admin Credentials for God Mode Activation:';
 
       const AGENTS = [
@@ -385,22 +383,32 @@
         appendWelcomeMessage();
       }
 
-      function getAdminHeaders() {
-        const key = getSessionToken();
-        if (!key) {
-          throw new Error('No active chairman session. Authenticate to continue.');
-        }
+      function getSwarmStreamHeaders() {
         return {
           'Content-Type': 'application/json',
           Accept: 'text/event-stream',
-          Authorization: `Bearer ${key}`,
-          'x-master-admin-key': key,
-          'X-Master-Admin-Key': key,
-          'x-admin-key': key,
-          'x-user-email': REGISTERED_EMAIL,
-          'X-Client-Email': REGISTERED_EMAIL,
-          'Client-Email': REGISTERED_EMAIL,
         };
+      }
+
+      function buildSwarmPayload(directiveText) {
+        const masterKeySession = getSessionToken();
+        if (!masterKeySession) {
+          throw new Error('No active chairman session. Authenticate to continue.');
+        }
+        return {
+          directive: String(directiveText || '').trim(),
+          master_key_session: masterKeySession,
+        };
+      }
+
+      function parseApiErrorMessage(errBody, fallback) {
+        const detail = errBody?.detail ?? errBody?.error?.message ?? errBody?.message;
+        if (!detail) return fallback;
+        if (typeof detail === 'string') return detail;
+        if (Array.isArray(detail)) {
+          return detail.map((item) => item?.msg || JSON.stringify(item)).join(' · ');
+        }
+        return JSON.stringify(detail);
       }
 
       function showToast(message, type) {
@@ -740,20 +748,13 @@
         el.sendChatBtn.disabled = true;
 
         const assistantNode = appendChatBubble('assistant', '');
-        const contextualPrompt = buildAgentPrompt(message);
+        const swarmPayload = buildSwarmPayload(message);
 
         try {
           const response = await fetch(`${getApiBase()}${CHAT_ENDPOINT}`, {
             method: 'POST',
-            headers: getAdminHeaders(),
-            body: JSON.stringify({
-              model: DEFAULT_MODEL,
-              stream: true,
-              messages: [
-                { role: 'system', content: `You are ${getActiveAgent().name}. ${getActiveAgent().role} Respond with institutional clarity. Use PROPOSAL or STRATEGY markers when recommending executive actions.` },
-                { role: 'user', content: contextualPrompt },
-              ],
-            }),
+            headers: getSwarmStreamHeaders(),
+            body: JSON.stringify(swarmPayload),
           });
 
           const contentType = response.headers.get('content-type') || '';
@@ -762,7 +763,7 @@
             let errMsg = `Request failed (${response.status})`;
             try {
               const errBody = await response.json();
-              errMsg = errBody?.error?.message || errBody?.message || errMsg;
+              errMsg = parseApiErrorMessage(errBody, errMsg);
             } catch {
               // non-json error
             }
@@ -856,8 +857,8 @@
         appendChatBubble('assistant',
           `**Enterprise Control Center online.**\n\n` +
           `Active agent: **${agent.name}**\n` +
-          `Streaming endpoint: \`${CHAT_ENDPOINT}\`\n` +
-          `Session credentials loaded from secure local storage. Dispatch a directive to begin.`
+          `Swarm endpoint: \`${CHAT_ENDPOINT}\`\n` +
+          `Session token bound to \`master_key_session\` in local storage. Dispatch a directive to begin.`
         );
       }
 
