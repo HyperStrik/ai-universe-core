@@ -75,6 +75,17 @@
       0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45); }
       50% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
     }
+    @keyframes fadeIn {
+      from { opacity: 0; transform: scale(0.97); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .animate-fade-in { animation: fadeIn 0.22s ease-out forwards; }
+    .kpi-card-interactive:hover {
+      border-color: rgba(16, 185, 129, 0.45);
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.12);
+    }
+    .workforce-card:hover { transform: translateY(-2px); border-color: rgba(148, 163, 184, 0.35); }
+    .workforce-card { transition: transform 0.18s ease, border-color 0.18s ease; }
   </style>
 </head>
 <body class="w-full h-screen bg-slate-950 text-slate-100 flex overflow-hidden antialiased">
@@ -138,13 +149,19 @@
 
     <!-- Real-time metrics grid -->
     <section class="shrink-0 px-6 py-4 grid grid-cols-2 lg:grid-cols-4 gap-3 border-b border-slate-800/80 bg-slate-950/50">
-      <article class="kpi-card rounded-xl p-4 shadow-card">
+      <article
+        id="kpiEmployeesCard"
+        role="button"
+        tabindex="0"
+        title="Open AI Workforce Matrix"
+        class="kpi-card kpi-card-interactive rounded-xl p-4 shadow-card cursor-pointer transition-all select-none"
+      >
         <div class="flex items-center justify-between mb-2">
           <span class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">AI Employees</span>
           <i class="fa-solid fa-robot text-emerald-400/80"></i>
         </div>
         <p class="text-2xl font-bold text-white">8</p>
-        <p class="text-[10px] text-emerald-400 mt-1">All nodes online</p>
+        <p class="text-[10px] text-emerald-400 mt-1">Click to view workforce matrix</p>
       </article>
       <article class="kpi-card rounded-xl p-4 shadow-card">
         <div class="flex items-center justify-between mb-2">
@@ -198,6 +215,26 @@
     </footer>
   </main>
 
+  <!-- 8 AI Workforce Matrix Modal -->
+  <div id="workforceModal" class="hidden fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center z-50 p-4" aria-modal="true" role="dialog" aria-labelledby="workforceModalTitle">
+    <div class="animate-fade-in w-full max-w-6xl max-h-[90vh] flex flex-col rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl overflow-hidden">
+      <div class="shrink-0 flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/95">
+        <div>
+          <p class="text-[10px] uppercase tracking-[0.2em] text-emerald-400 font-semibold">Enterprise Matrix</p>
+          <h3 id="workforceModalTitle" class="text-lg font-bold text-white">8 AI Department Workforce</h3>
+        </div>
+        <button
+          id="workforceCloseBtn"
+          type="button"
+          class="rounded-lg border border-slate-600 hover:bg-slate-800 text-slate-300 hover:text-white text-xs font-semibold px-4 py-2 transition-colors"
+        >
+          ✕ Close Workforce
+        </button>
+      </div>
+      <div id="workforceGrid" class="chat-scroll overflow-y-auto p-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+    </div>
+  </div>
+
   <!-- Chairman auth modal (first unlock) -->
   <div id="authModal" class="hidden fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
     <div class="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-4">
@@ -220,25 +257,64 @@
       'use strict';
 
       const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
-      const DEFAULT_MASTER_KEY = 'sk_god_master_production_bypass_v7';
+      const MASTER_ADMIN_KEY = 'ARYAN@kush6#Meetraj';
       const REGISTERED_EMAIL = 'demoa2735@gmail.com';
       const STORAGE_KEY_MASTER = 'auc_god_master_api_key';
       const CHAT_ENDPOINT = '/api/v1/chat/completions';
       const DEFAULT_MODEL = 'dolphin-llama3';
 
       const AGENTS = [
-        { id: 'ceo', name: 'AI CEO', icon: 'fa-chess-king', status: 'active', role: 'Chief executive strategist and final decision orchestrator.' },
-        { id: 'cmo', name: 'AI CMO', icon: 'fa-bullhorn', status: 'active', role: 'Marketing intelligence, brand positioning, and growth campaigns.' },
-        { id: 'media', name: 'AI Media Engine', icon: 'fa-photo-film', status: 'busy', role: 'Content production, creative assets, and media distribution.' },
-        { id: 'sales-a', name: 'Sales A', subtitle: 'Affiliate Network', icon: 'fa-handshake', status: 'active', role: 'Affiliate network expansion and partner revenue.' },
-        { id: 'sales-b', name: 'Sales B', subtitle: 'DM Closer', icon: 'fa-comments-dollar', status: 'idle', role: 'Direct-message closing sequences and high-ticket conversion.' },
-        { id: 'sales-c', name: 'Sales C', subtitle: 'Funnel Optimizer', icon: 'fa-filter', status: 'active', role: 'Funnel analytics, A/B tests, and conversion rate optimization.' },
-        { id: 'dev', name: 'Chief Developer', icon: 'fa-code', status: 'active', role: 'Engineering architecture, deployments, and technical execution.' },
-        { id: 'risk', name: 'Risk Officer', icon: 'fa-shield', status: 'active', role: 'Compliance, threat modeling, and operational risk controls.' },
+        {
+          id: 'ceo', name: 'AI CEO', icon: 'fa-chess-king', status: 'active',
+          avatarClass: 'from-amber-400 to-orange-500', badge: '🟢 Working',
+          activity: 'Managing global target queues',
+          role: 'Chief executive strategist and final decision orchestrator.',
+        },
+        {
+          id: 'cmo', name: 'AI CMO', icon: 'fa-bullhorn', status: 'active',
+          avatarClass: 'from-rose-400 to-pink-500', badge: '🟢 Working',
+          activity: 'Evaluating viral TikTok templates',
+          role: 'Marketing intelligence, brand positioning, and growth campaigns.',
+        },
+        {
+          id: 'media', name: 'AI Media Engine', icon: 'fa-photo-film', status: 'busy',
+          avatarClass: 'from-violet-500 to-purple-600', badge: '🟡 Scanning Tracks',
+          activity: 'Rendering short-form ad variants for A/B lanes',
+          role: 'Content production, creative assets, and media distribution.',
+        },
+        {
+          id: 'sales-a', name: 'Sales A', subtitle: 'Affiliate Network', icon: 'fa-handshake', status: 'active',
+          avatarClass: 'from-emerald-400 to-teal-500', badge: '🟢 Working',
+          activity: 'Onboarding tier-1 affiliate partners',
+          role: 'Affiliate network expansion and partner revenue.',
+        },
+        {
+          id: 'sales-b', name: 'Sales B', subtitle: 'DM Closer', icon: 'fa-comments-dollar', status: 'idle',
+          avatarClass: 'from-emerald-500 to-green-600', badge: '🔵 Idle',
+          activity: 'Infiltrating high-intent Reddit threads',
+          role: 'Direct-message closing sequences and high-ticket conversion.',
+        },
+        {
+          id: 'sales-c', name: 'Sales C', subtitle: 'Funnel Optimizer', icon: 'fa-filter', status: 'active',
+          avatarClass: 'from-cyan-400 to-emerald-500', badge: '🟡 Scanning Tracks',
+          activity: 'Auditing checkout drop-off heatmaps',
+          role: 'Funnel analytics, A/B tests, and conversion rate optimization.',
+        },
+        {
+          id: 'dev', name: 'Chief Developer', icon: 'fa-code', status: 'active',
+          avatarClass: 'from-blue-500 to-indigo-600', badge: '🟢 Working',
+          activity: 'Hardening SSE gateway and API middleware',
+          role: 'Engineering architecture, deployments, and technical execution.',
+        },
+        {
+          id: 'risk', name: 'Risk Officer', icon: 'fa-shield', status: 'active',
+          avatarClass: 'from-slate-400 to-slate-600', badge: '🟡 Scanning Tracks',
+          activity: 'Monitoring fraud vectors across lead intake',
+          role: 'Compliance, threat modeling, and operational risk controls.',
+        },
       ];
 
       let markdownRenderRaf = 0;
-      let masterKey = localStorage.getItem(STORAGE_KEY_MASTER) || DEFAULT_MASTER_KEY;
       let autonomousStopped = false;
 
       const state = {
@@ -264,6 +340,10 @@
         kpiLeads: document.getElementById('kpiLeads'),
         kpiHealth: document.getElementById('kpiHealth'),
         kpiHealthSub: document.getElementById('kpiHealthSub'),
+        kpiEmployeesCard: document.getElementById('kpiEmployeesCard'),
+        workforceModal: document.getElementById('workforceModal'),
+        workforceGrid: document.getElementById('workforceGrid'),
+        workforceCloseBtn: document.getElementById('workforceCloseBtn'),
         authModal: document.getElementById('authModal'),
         masterKeyInput: document.getElementById('masterKeyInput'),
         authUnlockBtn: document.getElementById('authUnlockBtn'),
@@ -275,7 +355,7 @@
       }
 
       function getMasterKey() {
-        return (masterKey || DEFAULT_MASTER_KEY).trim();
+        return MASTER_ADMIN_KEY;
       }
 
       function getAdminHeaders() {
@@ -285,8 +365,11 @@
           Accept: 'text/event-stream',
           Authorization: `Bearer ${key}`,
           'x-master-admin-key': key,
+          'X-Master-Admin-Key': key,
+          'x-admin-key': key,
           'x-user-email': REGISTERED_EMAIL,
           'X-Client-Email': REGISTERED_EMAIL,
+          'Client-Email': REGISTERED_EMAIL,
         };
       }
 
@@ -343,12 +426,61 @@
         return AGENTS.find((a) => a.id === state.activeAgentId) || AGENTS[0];
       }
 
-      function selectAgent(agentId) {
+      function selectAgent(agentId, silent) {
         state.activeAgentId = agentId;
         const agent = getActiveAgent();
         el.activeAgentLabel.textContent = `Routing to · ${agent.name}${agent.subtitle ? ` (${agent.subtitle})` : ''}`;
         renderAgentNav();
-        showToast(`${agent.name} selected as active agent.`, 'info');
+        renderWorkforceGrid();
+        if (!silent) showToast(`${agent.name} selected as active agent.`, 'info');
+      }
+
+      function getAgentDisplayBadge(agent) {
+        if (autonomousStopped) return '🔴 Halted';
+        return agent.badge || '🟢 Working';
+      }
+
+      function renderWorkforceGrid() {
+        if (!el.workforceGrid) return;
+        el.workforceGrid.innerHTML = '';
+        AGENTS.forEach((agent) => {
+          const isActive = agent.id === state.activeAgentId;
+          const card = document.createElement('button');
+          card.type = 'button';
+          card.className = `workforce-card text-left rounded-xl border p-4 bg-slate-950/80 ${
+            isActive ? 'border-emerald-500/50 ring-1 ring-emerald-500/30' : 'border-slate-700'
+          }`;
+          card.innerHTML = `
+            <div class="flex items-start gap-3 mb-3">
+              <div class="h-12 w-12 rounded-xl bg-gradient-to-br ${agent.avatarClass} flex items-center justify-center shrink-0 shadow-lg">
+                <i class="fa-solid ${agent.icon} text-slate-950 text-lg"></i>
+              </div>
+              <div class="min-w-0 flex-1">
+                <p class="text-sm font-bold text-white leading-tight">${agent.name}</p>
+                ${agent.subtitle ? `<p class="text-[10px] text-slate-400 mt-0.5">${agent.subtitle}</p>` : ''}
+                <span class="inline-block mt-2 text-[10px] font-semibold px-2 py-0.5 rounded-md bg-slate-800 border border-slate-700 text-slate-200">${getAgentDisplayBadge(agent)}</span>
+              </div>
+            </div>
+            <p class="text-[10px] font-mono text-slate-500 leading-relaxed border-t border-slate-800 pt-2 mt-1">
+              &gt; ${autonomousStopped ? 'Awaiting chairman resume signal' : agent.activity}
+            </p>`;
+          card.addEventListener('click', () => {
+            selectAgent(agent.id);
+            closeWorkforceModal();
+          });
+          el.workforceGrid.appendChild(card);
+        });
+      }
+
+      function openWorkforceModal() {
+        renderWorkforceGrid();
+        el.workforceModal.classList.remove('hidden');
+        document.body.classList.add('overflow-hidden');
+      }
+
+      function closeWorkforceModal() {
+        el.workforceModal.classList.add('hidden');
+        document.body.classList.remove('overflow-hidden');
       }
 
       function attachCopyCodeButtons(container) {
@@ -649,6 +781,7 @@
         el.kpiHealthSub.textContent = 'Kill switch engaged';
         el.kpiHealthSub.className = 'text-[10px] text-red-400 mt-1';
         renderAgentNav();
+        renderWorkforceGrid();
         console.log('[KILL-SWITCH] All autonomous agents stopped at', new Date().toISOString());
         showToast('Emergency kill switch engaged — all autonomous agents halted.', 'error');
       }
@@ -661,11 +794,12 @@
         el.kpiHealthSub.textContent = 'Operational';
         el.kpiHealthSub.className = 'text-[10px] text-emerald-400 mt-1';
         renderAgentNav();
+        renderWorkforceGrid();
         showToast('Autonomous agents resumed.', 'success');
       }
 
       function showAuthModal() {
-        el.masterKeyInput.value = getMasterKey();
+        el.masterKeyInput.value = '••••••••••••••••';
         el.authModal.classList.remove('hidden');
       }
 
@@ -674,13 +808,7 @@
       }
 
       function unlockControlCenter() {
-        const key = el.masterKeyInput.value.trim() || DEFAULT_MASTER_KEY;
-        if (key.length < 16) {
-          showToast('Invalid master key format.', 'warn');
-          return;
-        }
-        masterKey = key;
-        localStorage.setItem(STORAGE_KEY_MASTER, key);
+        localStorage.setItem(STORAGE_KEY_MASTER, MASTER_ADMIN_KEY);
         hideAuthModal();
         showToast('Chairman control center unlocked.', 'success');
         appendWelcomeMessage();
@@ -737,11 +865,29 @@
             unlockControlCenter();
           }
         });
+
+        el.kpiEmployeesCard.addEventListener('click', openWorkforceModal);
+        el.kpiEmployeesCard.addEventListener('keydown', (event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            openWorkforceModal();
+          }
+        });
+        el.workforceCloseBtn.addEventListener('click', closeWorkforceModal);
+        el.workforceModal.addEventListener('click', (event) => {
+          if (event.target === el.workforceModal) closeWorkforceModal();
+        });
+        document.addEventListener('keydown', (event) => {
+          if (event.key === 'Escape' && !el.workforceModal.classList.contains('hidden')) {
+            closeWorkforceModal();
+          }
+        });
       }
 
       function boot() {
+        localStorage.setItem(STORAGE_KEY_MASTER, MASTER_ADMIN_KEY);
         renderAgentNav();
-        selectAgent(state.activeAgentId);
+        selectAgent(state.activeAgentId, true);
         bindEvents();
         checkHealth();
 
