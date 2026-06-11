@@ -63,6 +63,9 @@ const RUNPOD_STREAM_REQUEST_TIMEOUT_MS = 120000;
 const RUNPOD_MAX_COMPLETION_TOKENS = 4000;
 const RUNPOD_TEMPERATURE = 0.7;
 const RUNPOD_TOP_P = 0.9;
+const SWARM_SERVICE_HOST = stripQuotes(process.env.SWARM_SERVICE_HOST) || '127.0.0.1';
+const SWARM_SERVICE_PORT = Number(process.env.SWARM_SERVICE_PORT || process.env.SWARM_PORT) || 8081;
+const SWARM_ORCHESTRATE_TIMEOUT_MS = Number(process.env.SWARM_ORCHESTRATE_TIMEOUT_MS) || 600000;
 
 function stripQuotes(value) {
   if (!value) return '';
@@ -321,7 +324,25 @@ function getAdminKey(req) {
   if (headerKey) return headerKey;
 
   const body = req.body || {};
-  return String(body.master_admin_key || body.x_master_admin_key || body.admin_key || '').trim();
+  return String(
+    body.master_admin_key ||
+      body.x_master_admin_key ||
+      body.admin_key ||
+      body.master_key_session ||
+      ''
+  ).trim();
+}
+
+function getSwarmServiceBaseUrl() {
+  const explicitUrl = stripQuotes(process.env.SWARM_SERVICE_URL);
+  if (explicitUrl) return explicitUrl.replace(/\/$/, '');
+  return `http://${SWARM_SERVICE_HOST}:${SWARM_SERVICE_PORT}`;
+}
+
+function isValidSwarmMasterSession(req) {
+  const body = req.body || {};
+  const sessionKey = String(body.master_key_session || '').trim();
+  return Boolean(sessionKey && MASTER_ADMIN_KEY && sessionKey === MASTER_ADMIN_KEY);
 }
 
 function isValidMasterOwnerKey(req) {
@@ -348,6 +369,190 @@ function godModeBypassClientRules(req, res, next) {
   req.skipDeviceFingerprint = true;
   console.log('[god-mode] MASTER_OWNER bypass — device fingerprint and clientRules skipped.');
   return next();
+}
+
+function swarmOrchestrationAccessGuard(req, res, next) {
+  const body = req.body || {};
+  const directive = typeof body.directive === 'string' ? body.directive.trim() : '';
+
+  if (!directive) {
+    return sendError(res, 400, 'DIRECTIVE_REQUIRED', 'A non-empty directive string is required.');
+  }
+
+  const sessionAuthorized = isValidSwarmMasterSession(req) || isValidMasterOwnerKey(req);
+  if (!sessionAuthorized) {
+    return sendError(
+      res,
+      401,
+      'SWARM_ACCESS_REFUSED',
+      'Access Refused By Swarm Security Rules'
+    );
+  }
+
+  applyMasterOwnerSession(req);
+  req.swarmOrchestrationPayload = {
+    directive,
+    master_key_session: String(body.master_key_session || getAdminKey(req) || '').trim(),
+  };
+  console.log('[swarm-proxy] MASTER_OWNER swarm orchestration request authorized.');
+  return next();
+}
+
+async function readAxiosStreamBody(stream) {
+  return new Promise((resolve) => {
+    let text = '';
+    stream.on('data', (chunk) => {
+      text += chunk.toString();
+    });
+    stream.on('end', () => resolve(text));
+    stream.on('error', () => resolve(text));
+  });
+}
+
+async function handleSwarmOrchestrateProxy(req, res) {
+  const swarmBaseUrl = getSwarmServiceBaseUrl();
+  const targetUrl = `${swarmBaseUrl}/api/v1/swarm/orchestrate`;
+  const payload = req.swarmOrchestrationPayload || {
+    directive: String(req.body?.directive || '').trim(),
+    master_key_session: String(req.body?.master_key_session || getAdminKey(req) || '').trim(),
+  };
+
+  if (!payload.directive) {
+    return sendError(res, 400, 'DIRECTIVE_REQUIRED', 'A non-empty directive string is required.');
+  }
+  if (!payload.master_key_session) {
+    return sendError(
+      res,
+      401,
+      'SWARM_ACCESS_REFUSED',
+      'Access Refused By Swarm Security Rules'
+    );
+  }
+
+  console.log('[swarm-proxy] Dispatching orchestration to:', targetUrl);
+
+  let upstream;
+  try {
+    upstream = await axios.post(targetUrl, payload, {
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+      },
+      responseType: 'stream',
+      timeout: SWARM_ORCHESTRATE_TIMEOUT_MS,
+      validateStatus: () => true,
+    });
+  } catch (err) {
+    console.error('[swarm-proxy] Upstream connection failed:', {
+      targetUrl,
+      message: err.message,
+      code: err.code || null,
+    });
+
+    if (err.code === 'ECONNREFUSED' || err.code === 'ENOTFOUND') {
+      return sendError(
+        res,
+        503,
+        'SWARM_UNAVAILABLE',
+        'Python swarm microservice is unreachable. Ensure ai_company.main is running.'
+      );
+    }
+
+    if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '')) {
+      return sendError(
+        res,
+        504,
+        'SWARM_TIMEOUT',
+        `Swarm orchestration timed out after ${SWARM_ORCHESTRATE_TIMEOUT_MS}ms.`
+      );
+    }
+
+    return sendError(
+      res,
+      502,
+      'SWARM_PROXY_FAILED',
+      err.message || 'Failed to reach swarm orchestration service.'
+    );
+  }
+
+  const contentType = String(upstream.headers['content-type'] || '');
+
+  if (upstream.status >= 400) {
+    const detail = await readAxiosStreamBody(upstream.data);
+    let parsedDetail = detail;
+    try {
+      const parsed = JSON.parse(detail);
+      parsedDetail = parsed?.detail || parsed?.message || detail;
+    } catch {
+      // keep raw text
+    }
+
+    console.error('[swarm-proxy] Upstream returned error:', {
+      status: upstream.status,
+      detail: String(parsedDetail || '').slice(0, 500),
+    });
+
+    if (contentType.includes('text/event-stream')) {
+      initSseHeaders(res);
+      res.write(
+        `data: ${JSON.stringify({
+          choices: [{ delta: { content: `**Swarm Error (${upstream.status})**\n\n${parsedDetail || 'Orchestration failed.'}\n` } }],
+        })}\n\n`
+      );
+      res.write('data: [DONE]\n\n');
+      return res.end();
+    }
+
+    return sendError(
+      res,
+      upstream.status,
+      'SWARM_UPSTREAM_ERROR',
+      parsedDetail || `Swarm service responded with status ${upstream.status}.`
+    );
+  }
+
+  initSseHeaders(res);
+  res.setHeader('X-Accel-Buffering', 'no');
+
+  upstream.data.on('data', (chunk) => {
+    if (!res.writableEnded) {
+      res.write(chunk);
+    }
+  });
+
+  upstream.data.on('end', () => {
+    if (!res.writableEnded) {
+      res.end();
+    }
+  });
+
+  upstream.data.on('error', (streamErr) => {
+    console.error('[swarm-proxy] Upstream SSE stream error:', streamErr.message);
+    if (!res.headersSent) {
+      return sendError(res, 502, 'SWARM_STREAM_ERROR', streamErr.message || 'Swarm SSE stream failed.');
+    }
+    if (!res.writableEnded) {
+      res.write(
+        `data: ${JSON.stringify({
+          choices: [
+            {
+              delta: {
+                content: `\n[swarm-stream-error] ${streamErr.message || 'Upstream stream interrupted.'}\n`,
+              },
+            },
+          ],
+        })}\n\n`
+      );
+      res.write('data: [DONE]\n\n');
+      res.end();
+    }
+  });
+
+  req.on('close', () => {
+    if (upstream?.data && !upstream.data.destroyed) {
+      upstream.data.destroy();
+    }
+  });
 }
 
 function handleGodModeSession(req, res, next) {
@@ -3215,6 +3420,11 @@ app.get('/api/status', (req, res) => {
       queue: 'heavy-tasks',
       processor: taskWorker ? 'online' : 'offline',
     },
+    swarm: {
+      endpoint: '/api/v1/swarm/orchestrate',
+      service_url: getSwarmServiceBaseUrl(),
+      timeout_ms: SWARM_ORCHESTRATE_TIMEOUT_MS,
+    },
   });
 });
 
@@ -3461,6 +3671,41 @@ app.post(
           model: COMMERCIAL_DEFAULT_MODEL,
           finish: true,
         });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    }
+  }
+);
+
+app.post(
+  '/api/v1/swarm/orchestrate',
+  swarmOrchestrationAccessGuard,
+  async (req, res) => {
+    try {
+      await handleSwarmOrchestrateProxy(req, res);
+    } catch (err) {
+      console.error('[swarm-proxy/orchestrate]', err.message);
+      if (!res.headersSent) {
+        return sendError(
+          res,
+          500,
+          'SWARM_PROXY_FAILED',
+          err.message || 'Swarm orchestration proxy failed.'
+        );
+      }
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({
+            choices: [
+              {
+                delta: {
+                  content: `\n[swarm-proxy-error] ${err.message || 'Swarm orchestration proxy failed.'}\n`,
+                },
+              },
+            ],
+          })}\n\n`
+        );
         res.write('data: [DONE]\n\n');
         res.end();
       }
