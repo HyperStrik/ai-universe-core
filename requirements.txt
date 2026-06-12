@@ -2,9 +2,9 @@
 # Hosts without a Rust toolchain must not compile tiktoken from source.
 # Install: pip install -r requirements.txt
 
---only-binary tiktoken
+--only-binary :all:
 
-tiktoken==0.7.0
+tiktoken==0.13.0
 crewai==0.28.8
 langchain>=0.1.0,<0.3.0
 fastapi
