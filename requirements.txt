@@ -4,11 +4,8 @@
 
 --only-binary :all:
 
-fastapi==0.111.0
-uvicorn==0.30.1
+fastapi
+uvicorn
 crewai==0.28.8
-crewai-tools==0.1.6
-pydantic==2.7.1
 langchain==0.1.16
-langchain-core==0.1.42
-litellm==1.35.32
+litellm
