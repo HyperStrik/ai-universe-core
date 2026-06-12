@@ -63,8 +63,9 @@ const RUNPOD_STREAM_REQUEST_TIMEOUT_MS = 120000;
 const RUNPOD_MAX_COMPLETION_TOKENS = 4000;
 const RUNPOD_TEMPERATURE = 0.7;
 const RUNPOD_TOP_P = 0.9;
-const SWARM_SERVICE_HOST = stripQuotes(process.env.SWARM_SERVICE_HOST) || '127.0.0.1';
-const SWARM_SERVICE_PORT = Number(process.env.SWARM_SERVICE_PORT || process.env.SWARM_PORT) || 8081;
+const SWARM_SERVICE_HOST = '127.0.0.1';
+const SWARM_SERVICE_PORT = 8081;
+const SWARM_PROXY_TARGET_URL = `http://${SWARM_SERVICE_HOST}:${SWARM_SERVICE_PORT}`;
 const SWARM_ORCHESTRATE_TIMEOUT_MS = Number(process.env.SWARM_ORCHESTRATE_TIMEOUT_MS) || 600000;
 
 function stripQuotes(value) {
@@ -336,7 +337,7 @@ function getAdminKey(req) {
 function getSwarmServiceBaseUrl() {
   const explicitUrl = stripQuotes(process.env.SWARM_SERVICE_URL);
   if (explicitUrl) return explicitUrl.replace(/\/$/, '');
-  return `http://${SWARM_SERVICE_HOST}:${SWARM_SERVICE_PORT}`;
+  return SWARM_PROXY_TARGET_URL;
 }
 
 function isValidSwarmMasterSession(req) {
@@ -4042,6 +4043,70 @@ app.use((err, req, res, next) => {
 // Boot
 // ---------------------------------------------------------------------------
 
+let pythonSwarmProcess = null;
+
+function resolvePythonExecutable() {
+  const configured = stripQuotes(process.env.PYTHON_BIN);
+  if (configured) return configured;
+  return process.platform === 'win32' ? 'python' : 'python3';
+}
+
+function shouldAutospawnSwarmEngine() {
+  const flag = String(process.env.SWARM_AUTOSPAWN || 'true').trim().toLowerCase();
+  if (flag === 'false' || flag === '0' || flag === 'off') return false;
+  if (stripQuotes(process.env.SWARM_SERVICE_URL)) return false;
+  return true;
+}
+
+function bootPythonSwarmEngine() {
+  if (!shouldAutospawnSwarmEngine()) {
+    console.log(
+      '[swarm-boot] Autospawn skipped (SWARM_AUTOSPAWN disabled or external SWARM_SERVICE_URL set).'
+    );
+    return null;
+  }
+
+  const pythonBin = resolvePythonExecutable();
+  const swarmPort = String(SWARM_SERVICE_PORT);
+
+  pythonSwarmProcess = spawn(pythonBin, ['-m', 'ai_company.main'], {
+    cwd: PROJECT_ROOT,
+    env: {
+      ...process.env,
+      SWARM_HOST: SWARM_SERVICE_HOST,
+      SWARM_PORT: swarmPort,
+    },
+    detached: false,
+    stdio: 'inherit',
+  });
+
+  pythonSwarmProcess.on('error', (err) => {
+    console.error('Failed to autonomously boot the Python Swarm Engine:', err);
+  });
+
+  pythonSwarmProcess.on('exit', (code, signal) => {
+    console.warn(
+      `[swarm-boot] Python Swarm Engine exited (code=${code ?? 'null'}, signal=${signal || 'none'})`
+    );
+    pythonSwarmProcess = null;
+  });
+
+  console.log(
+    `[swarm-boot] Python Swarm Engine spawned via "${pythonBin}" -> ${SWARM_PROXY_TARGET_URL}`
+  );
+  return pythonSwarmProcess;
+}
+
+function shutdownPythonSwarmEngine() {
+  if (!pythonSwarmProcess || pythonSwarmProcess.killed) return;
+  try {
+    pythonSwarmProcess.kill('SIGTERM');
+    console.log('[swarm-boot] Python Swarm Engine termination signal sent.');
+  } catch (err) {
+    console.error('[swarm-boot] Failed to terminate Python Swarm Engine:', err.message);
+  }
+}
+
 process.chdir(PROJECT_ROOT);
 
 async function pingInfrastructureAtStartup() {
@@ -4074,18 +4139,32 @@ async function pingInfrastructureAtStartup() {
 async function start() {
   await pingInfrastructureAtStartup();
 
+  bootPythonSwarmEngine();
+
   app.listen(PORT, () => {
     console.log(`AI Universe Core v${API_VERSION} listening on port ${PORT}`);
     console.log(`Dashboard: http://localhost:${PORT}/`);
     console.log(`AI routing: ${isNvidiaServerlessMode() ? 'SERVERLESS_NVIDIA' : 'OLLAMA_TUNNEL'}`);
     console.log(`AI endpoint: ${resolveAiChatUrl()} (model: ${resolveAiModel()})`);
+    console.log(`Swarm proxy target: ${getSwarmServiceBaseUrl()}/api/v1/swarm/orchestrate`);
     console.log(`Database: ${dbReady ? 'verified' : 'UNAVAILABLE — client routes blocked'}`);
     console.log(`Redis: ${redisReady ? 'verified' : 'UNAVAILABLE — client routes blocked'}`);
     console.log('Command: node server.js');
   });
 }
 
+process.on('SIGINT', () => {
+  shutdownPythonSwarmEngine();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  shutdownPythonSwarmEngine();
+  process.exit(0);
+});
+
 start().catch((err) => {
   console.error('[fatal] Server startup failed:', err.message);
+  shutdownPythonSwarmEngine();
   process.exit(1);
 });
