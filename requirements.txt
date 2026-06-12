@@ -4,9 +4,7 @@
 
 --only-binary :all:
 
-tiktoken==0.13.0
-crewai==0.28.8
-langchain>=0.1.0,<0.3.0
+crewai
 fastapi
 uvicorn
-pydantic>=2.0,<3.0
+pydantic
