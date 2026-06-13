@@ -333,6 +333,11 @@ function getAdminKey(req) {
 }
 
 function getRemoteSwarmHost() {
+  const swarmServiceUrl = stripQuotes(process.env.SWARM_SERVICE_URL);
+  if (swarmServiceUrl) {
+    return swarmServiceUrl.replace(/\/$/, '').replace(/\/v1$/i, '');
+  }
+
   const targetSwarmHost =
     stripQuotes(process.env.RUNPOD_GPU_ENDPOINT_URL) || DEFAULT_REMOTE_SWARM_HOST;
   return targetSwarmHost.replace(/\/$/, '').replace(/\/v1$/i, '');
@@ -457,7 +462,7 @@ async function handleSwarmOrchestrateProxy(req, res) {
         res,
         503,
         'SWARM_UNAVAILABLE',
-        'Remote GPU swarm microservice is unreachable. Verify RUNPOD_GPU_ENDPOINT_URL and ai_company.main on the GPU host.'
+        'Remote swarm microservice is unreachable. Verify SWARM_SERVICE_URL or RUNPOD_GPU_ENDPOINT_URL and ensure ai_company.main is running.'
       );
     }
 
