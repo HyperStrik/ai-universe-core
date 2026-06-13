@@ -64,7 +64,8 @@ const RUNPOD_MAX_COMPLETION_TOKENS = 4000;
 const RUNPOD_TEMPERATURE = 0.7;
 const RUNPOD_TOP_P = 0.9;
 const SWARM_ORCHESTRATE_TIMEOUT_MS = Number(process.env.SWARM_ORCHESTRATE_TIMEOUT_MS) || 600000;
-const DEFAULT_REMOTE_SWARM_HOST = 'http://127.0.0.1:8000';
+const LOCAL_SWARM_PORT = Number(process.env.SWARM_PORT) || 5000;
+const DEFAULT_LOCAL_SWARM_HOST = `http://127.0.0.1:${LOCAL_SWARM_PORT}`;
 
 function stripQuotes(value) {
   if (!value) return '';
@@ -332,19 +333,16 @@ function getAdminKey(req) {
   ).trim();
 }
 
-function getRemoteSwarmHost() {
-  const swarmServiceUrl = stripQuotes(process.env.SWARM_SERVICE_URL);
-  if (swarmServiceUrl) {
-    return swarmServiceUrl.replace(/\/$/, '').replace(/\/v1$/i, '');
+function getLocalSwarmHost() {
+  const override = stripQuotes(process.env.SWARM_LOCAL_URL);
+  if (override) {
+    return override.replace(/\/$/, '').replace(/\/v1$/i, '');
   }
-
-  const targetSwarmHost =
-    stripQuotes(process.env.RUNPOD_GPU_ENDPOINT_URL) || DEFAULT_REMOTE_SWARM_HOST;
-  return targetSwarmHost.replace(/\/$/, '').replace(/\/v1$/i, '');
+  return DEFAULT_LOCAL_SWARM_HOST;
 }
 
 function getSwarmServiceBaseUrl() {
-  return getRemoteSwarmHost();
+  return getLocalSwarmHost();
 }
 
 function isValidSwarmMasterSession(req) {
@@ -418,7 +416,7 @@ async function readAxiosStreamBody(stream) {
 }
 
 async function handleSwarmOrchestrateProxy(req, res) {
-  const targetSwarmHost = getRemoteSwarmHost();
+  const targetSwarmHost = getLocalSwarmHost();
   const targetUrl = `${targetSwarmHost}/api/v1/swarm/orchestrate`;
   const payload = req.swarmOrchestrationPayload || {
     directive: String(req.body?.directive || '').trim(),
@@ -462,7 +460,7 @@ async function handleSwarmOrchestrateProxy(req, res) {
         res,
         503,
         'SWARM_UNAVAILABLE',
-        'Remote swarm microservice is unreachable. Verify SWARM_SERVICE_URL or RUNPOD_GPU_ENDPOINT_URL and ensure ai_company.main is running.'
+        'Local Python swarm microservice is unreachable. Start it with: python -m ai_company.main'
       );
     }
 
@@ -4087,7 +4085,7 @@ async function start() {
     console.log(`Dashboard: http://localhost:${PORT}/`);
     console.log(`AI routing: ${isNvidiaServerlessMode() ? 'SERVERLESS_NVIDIA' : 'OLLAMA_TUNNEL'}`);
     console.log(`AI endpoint: ${resolveAiChatUrl()} (model: ${resolveAiModel()})`);
-    console.log(`Swarm proxy target: ${getRemoteSwarmHost()}/api/v1/swarm/orchestrate`);
+    console.log(`Swarm proxy target: ${getLocalSwarmHost()}/api/v1/swarm/orchestrate`);
     console.log(`Database: ${dbReady ? 'verified' : 'UNAVAILABLE — client routes blocked'}`);
     console.log(`Redis: ${redisReady ? 'verified' : 'UNAVAILABLE — client routes blocked'}`);
     console.log('Command: node server.js');

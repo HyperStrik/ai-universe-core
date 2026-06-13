@@ -355,7 +355,7 @@
 
       <div class="p-4 border-t border-edge space-y-3">
         <label class="block text-xs text-slate-400 uppercase tracking-wide">API Base URL</label>
-        <input id="apiBase" type="url" placeholder="https://ai-universe-core.onrender.com/" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
+        <input id="apiBase" type="url" placeholder="http://localhost:5000/" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
         <label class="block text-xs text-slate-400 uppercase tracking-wide">Client Email</label>
         <input id="userEmail" type="email" placeholder="Enter email — user@company.com" class="w-full rounded-lg bg-slate-900 border border-edge px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-accent" />
 
@@ -634,7 +634,7 @@
   <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
   <script>
-    const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
+    const PRODUCTION_API_BASE = 'http://localhost:5000/';
     const REGISTERED_EMAIL = 'demoa2735@gmail.com';
 
     const STORAGE_KEYS = {
@@ -774,14 +774,12 @@
     function normalizeApiBase(value) {
       const trimmed = (value || '').trim().replace(/\/$/, '');
       if (!trimmed) return PRODUCTION_API_BASE;
-      if (/^https?:\/\/localhost(?::\d+)?$/i.test(trimmed)) return PRODUCTION_API_BASE;
-      if (/loca\.lt/i.test(trimmed)) return PRODUCTION_API_BASE;
-      return trimmed;
+      return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
     }
 
     function getApiBase() {
       const storedApiBase = localStorage.getItem(STORAGE_KEYS.apiBase);
-      if (storedApiBase && /loca\.lt/i.test(storedApiBase)) {
+      if (storedApiBase) {
         localStorage.removeItem(STORAGE_KEYS.apiBase);
       }
       return normalizeApiBase(PRODUCTION_API_BASE).replace(/\/$/, '');

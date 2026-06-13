@@ -242,7 +242,7 @@
     (function () {
       'use strict';
 
-      const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
+      const PRODUCTION_API_BASE = 'http://localhost:5000/';
       const SESSION_TOKEN_KEY = 'god_master_session_token';
       const LEGACY_TOKEN_KEYS = ['auc_god_master_api_key', 'auc_admin_key'];
       const CHAT_ENDPOINT = '/api/v1/swarm/orchestrate';
@@ -339,14 +339,12 @@
       function normalizeApiBase(value) {
         const trimmed = (value || '').trim().replace(/\/$/, '');
         if (!trimmed) return PRODUCTION_API_BASE;
-        if (/^https?:\/\/localhost(?::\d+)?$/i.test(trimmed)) return PRODUCTION_API_BASE;
-        if (/loca\.lt/i.test(trimmed)) return PRODUCTION_API_BASE;
-        return trimmed;
+        return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
       }
 
       function getApiBase() {
         const storedApiBase = localStorage.getItem('auc_api_base');
-        if (storedApiBase && /loca\.lt/i.test(storedApiBase)) {
+        if (storedApiBase) {
           localStorage.removeItem('auc_api_base');
         }
         return normalizeApiBase(PRODUCTION_API_BASE).replace(/\/$/, '');

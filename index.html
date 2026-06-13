@@ -307,7 +307,7 @@
   <div id="toastHost" class="fixed bottom-4 right-4 z-50 space-y-2"></div>
 
   <script>
-    const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
+    const PRODUCTION_API_BASE = 'http://localhost:5000/';
     const REGISTERED_EMAIL = 'demoa2735@gmail.com';
 
     const STORAGE_KEYS = {
@@ -388,14 +388,12 @@
     function normalizeApiBase(value) {
       const trimmed = (value || '').trim().replace(/\/$/, '');
       if (!trimmed) return PRODUCTION_API_BASE;
-      if (/^https?:\/\/localhost(?::\d+)?$/i.test(trimmed)) return PRODUCTION_API_BASE;
-      if (/loca\.lt/i.test(trimmed)) return PRODUCTION_API_BASE;
-      return trimmed;
+      return trimmed.endsWith('/') ? trimmed : `${trimmed}/`;
     }
 
     function getApiBase() {
       const storedApiBase = localStorage.getItem(STORAGE_KEYS.apiBase);
-      if (storedApiBase && /loca\.lt/i.test(storedApiBase)) {
+      if (storedApiBase) {
         localStorage.removeItem(STORAGE_KEYS.apiBase);
       }
       return normalizeApiBase(PRODUCTION_API_BASE).replace(/\/$/, '');

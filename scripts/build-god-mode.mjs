@@ -18,7 +18,7 @@ const godCss = [
 const godPanelsHtml = slice(546, 629)
   .replace(/id="godmodePanels" class="hidden w-screen h-screen/, 'id="godmodePanels" class="hidden flex-1 min-h-0 w-full');
 
-const scriptHeader = `    const PRODUCTION_API_BASE = 'https://ai-universe-core.onrender.com/';
+const scriptHeader = `    const PRODUCTION_API_BASE = 'http://localhost:5000/';
     const REGISTERED_EMAIL = 'demoa2735@gmail.com';
 
     const STORAGE_KEYS = {

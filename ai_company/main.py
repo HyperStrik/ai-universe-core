@@ -28,8 +28,8 @@ from ai_company.tasks import CORE_TASKS, build_default_crew_inputs
 logger = logging.getLogger(__name__)
 
 MASTER_ADMIN_KEY: str = (os.getenv("MASTER_ADMIN_KEY") or "").strip()
-SWARM_HOST: str = os.getenv("SWARM_HOST", "0.0.0.0")
-SWARM_PORT: int = int(os.getenv("PORT", os.getenv("SWARM_PORT", "8081")))
+SWARM_HOST: str = os.getenv("SWARM_HOST", "127.0.0.1")
+SWARM_PORT: int = int(os.getenv("SWARM_PORT", "5000"))
 STREAM_CHUNK_SIZE: int = max(16, int(os.getenv("SWARM_STREAM_CHUNK_SIZE", "48")))
 
 _shutdown_event: asyncio.Event = asyncio.Event()
