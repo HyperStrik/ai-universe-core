@@ -389,11 +389,16 @@
       const trimmed = (value || '').trim().replace(/\/$/, '');
       if (!trimmed) return PRODUCTION_API_BASE;
       if (/^https?:\/\/localhost(?::\d+)?$/i.test(trimmed)) return PRODUCTION_API_BASE;
+      if (/loca\.lt/i.test(trimmed)) return PRODUCTION_API_BASE;
       return trimmed;
     }
 
     function getApiBase() {
-      return PRODUCTION_API_BASE.replace(/\/$/, '');
+      const storedApiBase = localStorage.getItem(STORAGE_KEYS.apiBase);
+      if (storedApiBase && /loca\.lt/i.test(storedApiBase)) {
+        localStorage.removeItem(STORAGE_KEYS.apiBase);
+      }
+      return normalizeApiBase(PRODUCTION_API_BASE).replace(/\/$/, '');
     }
 
     function getClientEmail() {

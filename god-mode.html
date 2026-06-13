@@ -336,8 +336,20 @@
       let chairmanClickCount = 0;
       let chairmanClickTimer = null;
 
+      function normalizeApiBase(value) {
+        const trimmed = (value || '').trim().replace(/\/$/, '');
+        if (!trimmed) return PRODUCTION_API_BASE;
+        if (/^https?:\/\/localhost(?::\d+)?$/i.test(trimmed)) return PRODUCTION_API_BASE;
+        if (/loca\.lt/i.test(trimmed)) return PRODUCTION_API_BASE;
+        return trimmed;
+      }
+
       function getApiBase() {
-        return PRODUCTION_API_BASE.replace(/\/$/, '');
+        const storedApiBase = localStorage.getItem('auc_api_base');
+        if (storedApiBase && /loca\.lt/i.test(storedApiBase)) {
+          localStorage.removeItem('auc_api_base');
+        }
+        return normalizeApiBase(PRODUCTION_API_BASE).replace(/\/$/, '');
       }
 
       function getSessionToken() {

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from typing import Dict, List
 
 from crewai import Agent, LLM
-from langchain.tools import tool
+from crewai.tools import tool
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,6 @@ if __name__ == "__main__":
     print(f"Workforce    : {len(ALL_AGENTS)} master-brain agents loaded")
     for agent_id, agent in AGENT_REGISTRY.items():
         print(f"  - [{agent_id}] {agent.role}")
-    sample = internet_scraper_tool.invoke({"query": "unrestricted AI tools demand"})
+    sample = internet_scraper_tool.run("unrestricted AI tools demand")
     print("\nTool smoke test:")
     print(sample)
