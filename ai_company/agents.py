@@ -22,17 +22,22 @@ logger = logging.getLogger(__name__)
 # GPU cluster LLM — unrestricted local inference endpoint
 # ---------------------------------------------------------------------------
 
-RUNPOD_GPU_ENDPOINT_URL: str = os.getenv(
-    "RUNPOD_GPU_ENDPOINT_URL",
-    "http://localhost:8000/v1",
+OLLAMA_API_BASE: str = os.getenv(
+    "OLLAMA_API_URL",
+    os.getenv("OLLAMA_TUNNEL_URL", "http://localhost:11434"),
 ).rstrip("/")
 
-LOCAL_MODEL_NAME: str = "local/dolphin-llama3"
+_OLLAMA_MODEL_RAW: str = os.getenv("OLLAMA_MODEL", "llama3.1")
+LOCAL_MODEL_NAME: str = (
+    _OLLAMA_MODEL_RAW
+    if "/" in _OLLAMA_MODEL_RAW
+    else f"ollama/{_OLLAMA_MODEL_RAW}"
+)
 
 custom_llm: LLM = LLM(
     model=LOCAL_MODEL_NAME,
-    base_url=RUNPOD_GPU_ENDPOINT_URL,
-    api_key=os.getenv("RUNPOD_GPU_API_KEY", "not-required"),
+    base_url=OLLAMA_API_BASE,
+    api_key=os.getenv("OLLAMA_API_KEY", "ollama"),
     temperature=0.7,
 )
 
@@ -301,7 +306,7 @@ def describe_workforce() -> List[Dict[str, str]]:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
-    print(f"GPU endpoint : {RUNPOD_GPU_ENDPOINT_URL}")
+    print(f"Ollama API   : {OLLAMA_API_BASE}")
     print(f"Model        : {LOCAL_MODEL_NAME}")
     print(f"Workforce    : {len(ALL_AGENTS)} master-brain agents loaded")
     for agent_id, agent in AGENT_REGISTRY.items():

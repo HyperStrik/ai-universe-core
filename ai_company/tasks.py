@@ -27,7 +27,7 @@ from ai_company.agents import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Core asynchronous task definitions
+# Core task definitions (CrewAI allows at most one async task at pipeline tail)
 # ---------------------------------------------------------------------------
 
 CEO_ORCHESTRATION_DESCRIPTION = (
@@ -51,7 +51,7 @@ ceo_orchestration_task: Task = Task(
     description=CEO_ORCHESTRATION_DESCRIPTION,
     expected_output=CEO_ORCHESTRATION_EXPECTED_OUTPUT,
     agent=ai_ceo,
-    async_execution=True,
+    async_execution=False,
 )
 
 CMO_VIRAL_GROWTH_DESCRIPTION = (
@@ -74,7 +74,7 @@ cmo_viral_growth_task: Task = Task(
     description=CMO_VIRAL_GROWTH_DESCRIPTION,
     expected_output=CMO_VIRAL_GROWTH_EXPECTED_OUTPUT,
     agent=ai_cmo,
-    async_execution=True,
+    async_execution=False,
 )
 
 SALES_B_DIRECT_DM_DESCRIPTION = (
@@ -96,7 +96,7 @@ sales_b_direct_dm_task: Task = Task(
     description=SALES_B_DIRECT_DM_DESCRIPTION,
     expected_output=SALES_B_DIRECT_DM_EXPECTED_OUTPUT,
     agent=sales_agent_b,
-    async_execution=True,
+    async_execution=False,
 )
 
 RISK_ENFORCEMENT_DESCRIPTION = (
