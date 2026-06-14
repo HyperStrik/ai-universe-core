@@ -8,4 +8,6 @@ fastapi
 uvicorn
 crewai==0.28.8
 langchain==0.1.16
+langchain-community
+langchain-ollama
 litellm

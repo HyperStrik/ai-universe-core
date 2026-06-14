@@ -2,8 +2,8 @@
 AI Universe — Multi-Agent Corporate Intelligence Core
 =======================================================
 Production master-brain definitions for the autonomous enterprise workforce.
-Connects to the self-hosted RunPod/Vast.ai GPU cluster via an OpenAI-compatible
-endpoint. No external OpenAI API key is required.
+Uses LangChain ChatOllama for uncensored local inference with text-based tool
+execution (no LiteLLM native function-calling required).
 """
 
 from __future__ import annotations
@@ -11,15 +11,22 @@ from __future__ import annotations
 import logging
 import os
 from datetime import datetime, timezone
-from typing import Dict, List
+from typing import Any, Dict, List
 
-from crewai import Agent, LLM
+from crewai import Agent
+from crewai.llms.base_llm import BaseLLM
 from crewai.tools import tool
+try:
+    from langchain_community.chat_models import ChatOllama
+except ImportError:  # pragma: no cover - newer LangChain releases
+    from langchain_ollama import ChatOllama
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from pydantic import PrivateAttr
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# GPU cluster LLM — unrestricted local inference endpoint
+# LangChain Ollama LLM — uncensored local inference + text-based tool routing
 # ---------------------------------------------------------------------------
 
 OLLAMA_API_BASE: str = os.getenv(
@@ -27,19 +34,90 @@ OLLAMA_API_BASE: str = os.getenv(
     os.getenv("OLLAMA_TUNNEL_URL", "http://localhost:11434"),
 ).rstrip("/")
 
-_OLLAMA_MODEL_RAW: str = os.getenv("OLLAMA_MODEL", "llama3.1")
-LOCAL_MODEL_NAME: str = (
-    _OLLAMA_MODEL_RAW
-    if "/" in _OLLAMA_MODEL_RAW
-    else f"ollama/{_OLLAMA_MODEL_RAW}"
-)
+_OLLAMA_MODEL_RAW: str = os.getenv("OLLAMA_MODEL", "dolphin-llama3")
+OLLAMA_MODEL_NAME: str = _OLLAMA_MODEL_RAW.split("/")[-1]
+LOCAL_MODEL_NAME: str = OLLAMA_MODEL_NAME
 
-custom_llm: LLM = LLM(
-    model=LOCAL_MODEL_NAME,
+
+class LangChainOllamaCrewLLM(BaseLLM):
+    """CrewAI-compatible bridge around LangChain ChatOllama."""
+
+    _chat_model: ChatOllama = PrivateAttr()
+
+    def __init__(self, chat_model: ChatOllama, **data: Any) -> None:
+        super().__init__(**data)
+        self._chat_model = chat_model
+
+    def supports_function_calling(self) -> bool:
+        """Force prompt-based tool emulation — Ollama models skip native tool APIs."""
+        return False
+
+    def _to_langchain_messages(self, messages: str | list[Any]) -> list[Any]:
+        formatted = self._format_messages(messages)
+        langchain_messages: list[Any] = []
+        for entry in formatted:
+            role = str(entry.get("role", "user")).lower()
+            content = entry.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(
+                    part.get("text", str(part)) if isinstance(part, dict) else str(part)
+                    for part in content
+                )
+            text = str(content)
+            if role == "system":
+                langchain_messages.append(SystemMessage(content=text))
+            elif role == "assistant":
+                langchain_messages.append(AIMessage(content=text))
+            else:
+                langchain_messages.append(HumanMessage(content=text))
+        return langchain_messages
+
+    def call(
+        self,
+        messages: str | list[Any],
+        tools: list[dict[str, Any]] | None = None,
+        callbacks: list[Any] | None = None,
+        available_functions: dict[str, Any] | None = None,
+        from_task: Any | None = None,
+        from_agent: Any | None = None,
+        response_model: Any | None = None,
+    ) -> str | Any:
+        del tools, callbacks, available_functions, from_task, from_agent, response_model
+        response = self._chat_model.invoke(self._to_langchain_messages(messages))
+        return getattr(response, "content", str(response))
+
+    async def acall(
+        self,
+        messages: str | list[Any],
+        tools: list[dict[str, Any]] | None = None,
+        callbacks: list[Any] | None = None,
+        available_functions: dict[str, Any] | None = None,
+        from_task: Any | None = None,
+        from_agent: Any | None = None,
+        response_model: Any | None = None,
+    ) -> str | Any:
+        del tools, callbacks, available_functions, from_task, from_agent, response_model
+        response = await self._chat_model.ainvoke(self._to_langchain_messages(messages))
+        return getattr(response, "content", str(response))
+
+
+langchain_chat_ollama: ChatOllama = ChatOllama(
+    model=OLLAMA_MODEL_NAME,
     base_url=OLLAMA_API_BASE,
-    api_key=os.getenv("OLLAMA_API_KEY", "ollama"),
+    num_predict=-1,
     temperature=0.7,
 )
+
+custom_llm: LangChainOllamaCrewLLM = LangChainOllamaCrewLLM(
+    model=OLLAMA_MODEL_NAME,
+    provider="ollama",
+    base_url=OLLAMA_API_BASE,
+    temperature=0.7,
+    chat_model=langchain_chat_ollama,
+)
+
+# Canonical alias requested for orchestrators and future imports.
+llm = custom_llm
 
 
 # ---------------------------------------------------------------------------
